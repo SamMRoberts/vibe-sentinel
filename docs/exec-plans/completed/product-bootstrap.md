@@ -302,6 +302,8 @@ module cli
 - 2026-05-06: Hardened `status_command_prints_workspace_status` to use an isolated temporary workspace fixture instead of depending on this repository's active-plan state.
 - 2026-05-06: `cargo test status_command_prints_workspace_status` passed.
 - 2026-05-06: `cargo test --all` passed: 9 library tests and 1 integration test passed.
+- 2026-05-06: Moved plan to completed; `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all`, `cargo build --all-targets`, `python3 scripts/validate_tdd_workflow.py docs/exec-plans/completed/product-bootstrap.md`, and `python3 scripts/validate_tdd_workflow.py` passed.
+- 2026-05-06: After completion, `cargo run -- status` passed and reported active plan as missing, which is expected when no active feature plan exists.
 
 ### Review Notes
 
@@ -360,6 +362,7 @@ module cli
 - 2026-05-06: Final validation passed for formatting, clippy, tests, build, TDD plan validation, and CLI smoke test.
 - 2026-05-06: Hardened CLI integration test so completed plans can move out of `active/` without breaking tests.
 - 2026-05-06: Product bootstrap slice completed and ready to move to completed plans.
+- 2026-05-06: Product bootstrap plan moved to completed plans and post-completion validation passed.
 
 ## Decisions
 
