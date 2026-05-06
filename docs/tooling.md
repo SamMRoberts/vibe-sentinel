@@ -16,7 +16,7 @@
 - `cargo test --all`: run all Rust tests.
 - `cargo build --all-targets`: verify build targets.
 - `python3 scripts/validate_tdd_workflow.py`: verify active feature plans contain required modified TDD artifacts.
-- `python3 /Users/samroberts/.codex/plugins/cache/local-marketplace/agentic-coding-harness/0.1.0/scripts/validate_harness.py`: validate harness structure when the plugin cache path is available.
+- `python3 <agentic-coding-harness-plugin>/scripts/validate_harness.py`: validate harness structure when the plugin path is available; substitute the local plugin or extension cache path for the current machine.
 
 ## Command reporting
 
