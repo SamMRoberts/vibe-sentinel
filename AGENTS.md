@@ -36,6 +36,7 @@ or is not included in the harness scope.
 | Logs, metrics, traces, UI validation | `docs/observability.md` |
 | Review expectations | `docs/review.md` |
 | External or copied references | `docs/references/index.md` |
+| Symdex MCP evidence workflow (any repository) | `docs/references/symdex-mcp-tools-usage.md` |
 
 ## Scope gate
 
