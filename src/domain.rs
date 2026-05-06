@@ -1,5 +1,7 @@
 use std::fmt::{Display, Formatter};
 
+use serde::Serialize;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VibeError {
     InvalidArguments(String),
@@ -19,20 +21,21 @@ impl Display for VibeError {
 
 impl std::error::Error for VibeError {}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ReadinessState {
     Ready,
     Missing,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct StatusCheck {
     pub name: String,
     pub state: ReadinessState,
     pub detail: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct StatusReport {
     pub project_name: String,
     pub checks: Vec<StatusCheck>,

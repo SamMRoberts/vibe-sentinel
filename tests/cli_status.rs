@@ -20,6 +20,25 @@ fn status_command_prints_workspace_status() {
     );
 }
 
+#[test]
+fn status_json_command_prints_workspace_status_json() {
+    let workspace = TestWorkspace::new();
+    let output = Command::new(env!("CARGO_BIN_EXE_vibe-sentinel"))
+        .args(["status", "--json"])
+        .current_dir(workspace.root())
+        .output()
+        .expect("status command output");
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert_eq!(
+        stdout,
+        "{\"project_name\":\"vibe-sentinel\",\"ready\":true,\"checks\":[{\"name\":\"harness docs\",\"state\":\"ready\",\"detail\":\"required harness docs present\"},{\"name\":\"active plan\",\"state\":\"ready\",\"detail\":\"active execution plan present\"},{\"name\":\"rust workspace\",\"state\":\"ready\",\"detail\":\"Cargo workspace present\"}]}\n"
+    );
+}
+
 struct TestWorkspace {
     root: std::path::PathBuf,
 }

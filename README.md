@@ -11,8 +11,15 @@ Run the first vertical slice from the repository root:
 cargo run -- status
 ```
 
+For machine-readable output, run:
+
+```bash
+cargo run -- status --json
+```
+
 The command prints deterministic local readiness checks for harness docs, active
-execution plans, and Cargo workspace presence.
+execution plans, and Cargo workspace presence. JSON output includes the project
+name, aggregate readiness, and the ordered readiness checks.
 
 ## Validation
 
