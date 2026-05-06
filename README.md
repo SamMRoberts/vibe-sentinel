@@ -17,9 +17,16 @@ For machine-readable output, run:
 cargo run -- status --json
 ```
 
+For the read-only terminal UI, run:
+
+```bash
+cargo run -- status --tui
+```
+
 The command prints deterministic local readiness checks for harness docs, active
 execution plans, and Cargo workspace presence. JSON output includes the project
-name, aggregate readiness, and the ordered readiness checks.
+name, aggregate readiness, and the ordered readiness checks. TUI mode renders the
+same readiness report and exits on `q` or `Esc`.
 
 ## Validation
 

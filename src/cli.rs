@@ -18,6 +18,7 @@ pub enum CliCommand {
 pub enum OutputFormat {
     Text,
     Json,
+    Tui,
 }
 
 pub fn parse_args<I, S>(args: I) -> Result<CliArgs, VibeError>
@@ -39,8 +40,22 @@ where
             command: CliCommand::Status,
             output_format: OutputFormat::Json,
         }),
+        [command, flag] if command == "status" && flag == "--tui" => Ok(CliArgs {
+            command: CliCommand::Status,
+            output_format: OutputFormat::Tui,
+        }),
+        [command, first_flag, second_flag]
+            if command == "status"
+                && matches!(first_flag.as_str(), "--json" | "--tui")
+                && matches!(second_flag.as_str(), "--json" | "--tui") =>
+        {
+            Err(VibeError::InvalidArguments(
+                "conflicting output flags for `status`: choose one of `--json` or `--tui`"
+                    .to_string(),
+            ))
+        }
         [command, flag] if command == "status" => Err(VibeError::InvalidArguments(format!(
-            "unknown flag `{flag}`: expected `--json`"
+            "unknown flag `{flag}`: expected `--json` or `--tui`"
         ))),
         [command, ..] if command == "status" => Err(VibeError::InvalidArguments(
             "too many arguments for `status`: expected optional `--json`".to_string(),
@@ -58,6 +73,7 @@ pub fn render_status(args: &CliArgs, report: &StatusReport) -> Result<String, Vi
     match args.output_format {
         OutputFormat::Text => Ok(format_status(report)),
         OutputFormat::Json => format_status_json(report),
+        OutputFormat::Tui => Ok(String::new()),
     }
 }
 
@@ -130,12 +146,36 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_status_tui() {
+        let args = parse_args(["vibe-sentinel", "status", "--tui"]).expect("parsed args");
+
+        assert_eq!(args.command, CliCommand::Status);
+        assert_eq!(args.output_format, OutputFormat::Tui);
+    }
+
+    #[test]
+    fn parse_args_rejects_conflicting_status_output_flags() {
+        let error =
+            parse_args(["vibe-sentinel", "status", "--json", "--tui"]).expect_err("parse error");
+
+        assert_eq!(
+            error,
+            VibeError::InvalidArguments(
+                "conflicting output flags for `status`: choose one of `--json` or `--tui`"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
     fn parse_args_rejects_unknown_status_flag() {
         let error = parse_args(["vibe-sentinel", "status", "--pretty"]).expect_err("parse error");
 
         assert_eq!(
             error,
-            VibeError::InvalidArguments("unknown flag `--pretty`: expected `--json`".to_string())
+            VibeError::InvalidArguments(
+                "unknown flag `--pretty`: expected `--json` or `--tui`".to_string()
+            )
         );
     }
 

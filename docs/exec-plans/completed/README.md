@@ -9,3 +9,4 @@ Keep completed plans for historical context and future agent runs.
 
 - `product-bootstrap.md`: Rust workspace bootstrap and first text `status` command.
 - `status-json.md`: structured JSON output mode for the existing `status` command.
+- `tui-status.md`: read-only ratatui status view over the existing readiness report.
