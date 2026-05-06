@@ -11,7 +11,7 @@ project readiness signals.
 - Maintainers checking whether a workspace is ready for harness-governed Rust work.
 - Coding agents checking local readiness before making product changes.
 
-## Proposed Public Contract
+## Current Public Contract
 
 - Command: `vibe-sentinel status`
 - Output format: deterministic human-readable text.
@@ -19,8 +19,8 @@ project readiness signals.
   - Exit success when the command runs and can report readiness.
   - Exit failure for invalid arguments or unreadable workspace inputs.
 
-This public CLI contract requires human approval before Rust skeletons are
-created.
+This public CLI contract was approved and shipped by the completed product
+bootstrap slice.
 
 ## Behavior
 
@@ -31,6 +31,11 @@ named checks. The initial checks are:
 - Active plan: at least one active execution plan is present when feature work
   is underway.
 - Rust workspace: Cargo workspace files are present after bootstrap scaffolding.
+
+When no implementation slice is underway, the active-plan check is expected to
+report `missing`. In that idle state the aggregate readiness is `false`, which
+means the workspace is not currently set up for governed implementation work; it
+does not mean the shipped CLI is broken.
 
 The command must not perform network calls, credential reads, deployment
 operations, destructive file operations, or hidden long-running work.
@@ -48,8 +53,8 @@ operations, destructive file operations, or hidden long-running work.
 ## Non-goals
 
 - Full CLI command set.
-- TUI screens.
+- New TUI screens beyond the shipped status view.
 - MCP tools or resources.
-- JSON output.
+- New structured output modes beyond the shipped JSON status output.
 - Persistent configuration or storage.
 - Network, credential, deployment, or destructive operations.

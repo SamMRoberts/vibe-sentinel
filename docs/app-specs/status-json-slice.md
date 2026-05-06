@@ -12,7 +12,7 @@ without parsing human-readable text.
 - Coding agents reading local readiness signals programmatically.
 - Future TUI and MCP surfaces that need structured status data.
 
-## Proposed Public Contract
+## Current Public Contract
 
 - Command: `vibe-sentinel status --json`
 - Existing command remains unchanged: `vibe-sentinel status`
@@ -20,10 +20,10 @@ without parsing human-readable text.
 - Error behavior: invalid arguments still write actionable errors to stderr and
   exit failure.
 
-This public CLI contract requires explicit human approval before Rust behavior
-is changed.
+This public CLI contract was approved and shipped by the completed JSON status
+slice.
 
-## Proposed JSON Shape
+## Current JSON Shape
 
 ```json
 {
@@ -39,10 +39,10 @@ is changed.
 }
 ```
 
-## Dependency Decision
+## Dependency Status
 
-Preferred implementation uses `serde` and `serde_json` to avoid hand-rolled JSON.
-Adding these dependencies requires explicit human approval before Rust changes.
+The shipped implementation uses `serde` and `serde_json` to avoid hand-rolled
+JSON. These dependencies were explicitly approved for the JSON status slice.
 
 ## Acceptance Criteria
 
@@ -57,7 +57,7 @@ Adding these dependencies requires explicit human approval before Rust changes.
 ## Non-goals
 
 - Add broad CLI command structure.
-- Add TUI behavior.
+- Add new TUI behavior beyond the shipped status view.
 - Add MCP tools or resources.
 - Change status evaluation checks.
 - Add network, credential, deployment, or destructive behavior.

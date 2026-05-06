@@ -122,22 +122,68 @@ struct TerminalGuard {
     terminal: Terminal<CrosstermBackend<io::Stdout>>,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct TerminalSetupState {
+    raw_mode_enabled: bool,
+    alternate_screen_entered: bool,
+}
+
+impl TerminalSetupState {
+    fn mark_raw_mode_enabled(&mut self) {
+        self.raw_mode_enabled = true;
+    }
+
+    fn mark_alternate_screen_entered(&mut self) {
+        self.alternate_screen_entered = true;
+    }
+
+    fn cleanup_partial<W, D>(&self, writer: &mut W, disable_raw_mode: D)
+    where
+        W: io::Write,
+        D: FnOnce(),
+    {
+        if self.alternate_screen_entered {
+            let _ = execute!(writer, LeaveAlternateScreen);
+        }
+
+        if self.raw_mode_enabled {
+            disable_raw_mode();
+        }
+    }
+}
+
 impl TerminalGuard {
     fn enter() -> Result<Self, VibeError> {
+        let mut setup_state = TerminalSetupState::default();
+
         enable_raw_mode().map_err(|error| {
             VibeError::StatusEvaluationFailed(format!("could not enable raw mode: {error}"))
         })?;
+        setup_state.mark_raw_mode_enabled();
 
-        let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen).map_err(|error| {
-            let _ = disable_raw_mode();
-            VibeError::StatusEvaluationFailed(format!("could not enter alternate screen: {error}"))
+        let stdout = io::stdout();
+        let backend = CrosstermBackend::new(stdout);
+        let mut terminal = Terminal::new(backend).map_err(|error| {
+            let mut stdout = io::stdout();
+            setup_state.cleanup_partial(&mut stdout, || {
+                let _ = disable_raw_mode();
+            });
+            VibeError::StatusEvaluationFailed(format!("could not create TUI terminal: {error}"))
         })?;
 
-        let backend = CrosstermBackend::new(stdout);
-        let terminal = Terminal::new(backend).map_err(|error| {
-            let _ = disable_raw_mode();
-            VibeError::StatusEvaluationFailed(format!("could not create TUI terminal: {error}"))
+        execute!(terminal.backend_mut(), EnterAlternateScreen).map_err(|error| {
+            setup_state.cleanup_partial(terminal.backend_mut(), || {
+                let _ = disable_raw_mode();
+            });
+            VibeError::StatusEvaluationFailed(format!("could not enter alternate screen: {error}"))
+        })?;
+        setup_state.mark_alternate_screen_entered();
+
+        terminal.clear().map_err(|error| {
+            setup_state.cleanup_partial(terminal.backend_mut(), || {
+                let _ = disable_raw_mode();
+            });
+            VibeError::StatusEvaluationFailed(format!("could not clear TUI terminal: {error}"))
         })?;
 
         Ok(Self { terminal })
@@ -149,5 +195,26 @@ impl Drop for TerminalGuard {
         let _ = disable_raw_mode();
         let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
         let _ = self.terminal.show_cursor();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::TerminalSetupState;
+
+    #[test]
+    fn terminal_setup_state_leaves_alternate_screen_after_partial_setup() {
+        let mut setup_state = TerminalSetupState::default();
+        setup_state.mark_raw_mode_enabled();
+        setup_state.mark_alternate_screen_entered();
+        let raw_mode_disabled = Cell::new(false);
+        let mut output = Vec::new();
+
+        setup_state.cleanup_partial(&mut output, || raw_mode_disabled.set(true));
+
+        assert!(raw_mode_disabled.get());
+        assert!(!output.is_empty());
     }
 }

@@ -3,6 +3,8 @@ use crate::domain::{ReadinessState, StatusReport, VibeError};
 use crate::ports::WorkspaceProbe;
 use serde::Serialize;
 
+const STATUS_OUTPUT_FLAG_USAGE: &str = "`--json` or `--tui`";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CliArgs {
     pub command: CliCommand,
@@ -49,17 +51,16 @@ where
                 && matches!(first_flag.as_str(), "--json" | "--tui")
                 && matches!(second_flag.as_str(), "--json" | "--tui") =>
         {
-            Err(VibeError::InvalidArguments(
-                "conflicting output flags for `status`: choose one of `--json` or `--tui`"
-                    .to_string(),
-            ))
+            Err(VibeError::InvalidArguments(format!(
+                "conflicting output flags for `status`: choose one of {STATUS_OUTPUT_FLAG_USAGE}"
+            )))
         }
         [command, flag] if command == "status" => Err(VibeError::InvalidArguments(format!(
-            "unknown flag `{flag}`: expected `--json` or `--tui`"
+            "unknown flag `{flag}`: expected {STATUS_OUTPUT_FLAG_USAGE}"
         ))),
-        [command, ..] if command == "status" => Err(VibeError::InvalidArguments(
-            "too many arguments for `status`: expected optional `--json`".to_string(),
-        )),
+        [command, ..] if command == "status" => Err(VibeError::InvalidArguments(format!(
+            "too many arguments for `status`: expected optional {STATUS_OUTPUT_FLAG_USAGE}"
+        ))),
         [] => Err(VibeError::InvalidArguments(
             "missing command: expected `status`".to_string(),
         )),
@@ -73,7 +74,9 @@ pub fn render_status(args: &CliArgs, report: &StatusReport) -> Result<String, Vi
     match args.output_format {
         OutputFormat::Text => Ok(format_status(report)),
         OutputFormat::Json => format_status_json(report),
-        OutputFormat::Tui => Ok(String::new()),
+        OutputFormat::Tui => Err(VibeError::InvalidArguments(
+            "TUI output must be handled by the TUI runtime".to_string(),
+        )),
     }
 }
 
@@ -124,7 +127,8 @@ pub fn format_status_json(report: &StatusReport) -> Result<String, VibeError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        execute_with_probe, format_status, format_status_json, parse_args, CliCommand, OutputFormat,
+        execute_with_probe, format_status, format_status_json, parse_args, render_status,
+        CliCommand, OutputFormat,
     };
     use crate::adapters::test_support::FakeWorkspaceProbe;
     use crate::domain::VibeError;
@@ -164,6 +168,34 @@ mod tests {
                 "conflicting output flags for `status`: choose one of `--json` or `--tui`"
                     .to_string()
             )
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_status_with_too_many_arguments_listing_json_and_tui() {
+        let error =
+            parse_args(["vibe-sentinel", "status", "--tui", "extra"]).expect_err("parse error");
+
+        assert_eq!(
+            error,
+            VibeError::InvalidArguments(
+                "too many arguments for `status`: expected optional `--json` or `--tui`"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn render_status_rejects_tui_output_format() {
+        let args = parse_args(["vibe-sentinel", "status", "--tui"]).expect("parsed args");
+        let report =
+            execute_with_probe(args.clone(), FakeWorkspaceProbe::new()).expect("status report");
+
+        assert_eq!(
+            render_status(&args, &report),
+            Err(VibeError::InvalidArguments(
+                "TUI output must be handled by the TUI runtime".to_string()
+            ))
         );
     }
 

@@ -13,7 +13,7 @@ terminal surface without changing the status evaluation checks.
   CLI text and JSON output.
 - Future TUI workflows that need a minimal, tested application shell.
 
-## Proposed Public Contract
+## Current Public Contract
 
 - Command: `vibe-sentinel status --tui`
 - Existing commands remain unchanged: `vibe-sentinel status` and
@@ -24,8 +24,8 @@ terminal surface without changing the status evaluation checks.
 - Error behavior: invalid arguments still write actionable errors to stderr and
   exit failure.
 
-This public TUI contract requires explicit human approval before Rust behavior is
-changed.
+This public TUI contract and its dependencies were explicitly approved and
+shipped by the completed TUI status slice.
 
 ## Rendering Contract
 
@@ -35,11 +35,11 @@ changed.
   produced by the application core.
 - Keep render and state behavior testable without a real terminal.
 
-## Dependency Decision
+## Dependency Status
 
-Preferred implementation uses `ratatui` for rendering and a terminal backend
-crate only if needed by the runtime surface. Adding dependencies requires
-explicit human approval before Rust changes.
+The shipped implementation uses `ratatui` for rendering and `crossterm` for the
+terminal runtime surface. These dependencies were explicitly approved for the TUI
+status slice.
 
 ## Acceptance Criteria
 
