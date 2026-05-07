@@ -5,7 +5,7 @@ repository's modified TDD harness.
 
 ## Current Surfaces
 
-Run the first vertical slice from the repository root:
+Run the status CLI from the repository root:
 
 ```bash
 cargo run -- status

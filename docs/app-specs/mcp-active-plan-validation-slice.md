@@ -19,7 +19,9 @@ are ready for implementation under the modified TDD workflow.
 - Transport: existing local stdio MCP server.
 - Tool: `vibe_sentinel_validate_active_plans`.
 - Tool behavior: read-only, idempotent, local-only, and non-destructive.
-- Tool input: no required arguments for this slice.
+- Tool input: no required arguments for this slice; omitted `arguments` and
+  empty-object `arguments: {}` are accepted, while non-object or non-empty
+  argument objects are rejected deterministically.
 - Tool scope: validate all non-README markdown plans in
   `docs/exec-plans/active/`.
 - Tool output: structured implementation-readiness data with per-plan checks,

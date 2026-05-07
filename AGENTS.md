@@ -66,8 +66,8 @@ Resolution options:
 
 ## Planning requirements
 
-Create an active plan for multi-file, architectural, security, reliability,
-or user-visible behavior changes.
+Create an active plan for unclear, multi-file, architectural, security,
+reliability, or user-visible behavior changes.
 
 Active plans live in `docs/exec-plans/active/`.
 Completed plans move to `docs/exec-plans/completed/`.

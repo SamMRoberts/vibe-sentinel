@@ -12,6 +12,9 @@
 - For the local MCP active-plan validation tool, fixture coverage should include
   `tools/list` metadata, successful `tools/call`, empty active-plan state,
   semantic validation issues, and workspace read failures.
+- For no-argument MCP tools, fixture coverage should include omitted arguments,
+  empty-object arguments, non-object arguments, unexpected argument properties,
+  and malformed `tools/call` envelopes that must not abort the stdio session.
 - Keep execution-plan validation logs current after each skeleton unit is implemented.
 
 ## Reporting

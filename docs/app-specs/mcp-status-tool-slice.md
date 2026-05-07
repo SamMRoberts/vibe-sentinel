@@ -19,7 +19,9 @@ them to parse CLI text output.
   different local transport before implementation.
 - Tool: `vibe_sentinel_status`.
 - Tool behavior: read-only, idempotent, local-only, and non-destructive.
-- Tool input: no required arguments for the first slice.
+- Tool input: no required arguments for the first slice; omitted `arguments`
+  and empty-object `arguments: {}` are accepted, while non-object or non-empty
+  argument objects are rejected deterministically.
 - Tool output: structured status data equivalent to `vibe-sentinel status --json`.
 - Error behavior: invalid protocol payloads and workspace read failures return
   actionable MCP errors without panics or hidden side effects.

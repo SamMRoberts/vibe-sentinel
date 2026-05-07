@@ -24,6 +24,12 @@ pub struct McpToolDescriptor {
     pub read_only: bool,
     pub idempotent: bool,
     pub local_only: bool,
+    input_schema: McpToolInputSchema,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum McpToolInputSchema {
+    NoArguments,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,6 +97,18 @@ struct JsonRpcError {
     data: Option<Value>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct ToolCallParams {
+    name: String,
+    arguments: Option<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NoArguments {}
+
+type ToolCallValidationResult<T> = Result<T, Box<JsonRpcResponse>>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StdioFraming {
     ContentLength,
@@ -151,6 +169,7 @@ pub fn status_tool_descriptor() -> McpToolDescriptor {
         read_only: true,
         idempotent: true,
         local_only: true,
+        input_schema: McpToolInputSchema::NoArguments,
     }
 }
 
@@ -162,6 +181,7 @@ pub fn active_plan_validation_tool_descriptor() -> McpToolDescriptor {
         read_only: true,
         idempotent: true,
         local_only: true,
+        input_schema: McpToolInputSchema::NoArguments,
     }
 }
 
@@ -448,11 +468,7 @@ fn handle_tools_list(id: Option<Value>) -> Result<JsonRpcResponse, VibeError> {
             serde_json::json!({
                 "name": descriptor.name,
                 "description": descriptor.description,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {},
-                    "additionalProperties": false
-                },
+                "inputSchema": input_schema_json(descriptor.input_schema),
                 "annotations": {
                     "readOnlyHint": descriptor.read_only,
                     "idempotentHint": descriptor.idempotent,
@@ -471,6 +487,84 @@ fn handle_tools_list(id: Option<Value>) -> Result<JsonRpcResponse, VibeError> {
     ))
 }
 
+fn input_schema_json(schema: McpToolInputSchema) -> Value {
+    match schema {
+        McpToolInputSchema::NoArguments => serde_json::json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
+    }
+}
+
+fn invalid_params(id: Option<Value>, message: impl Into<String>) -> JsonRpcResponse {
+    json_rpc_error(id, -32602, message, None)
+}
+
+fn parse_tool_call_params(
+    id: Option<Value>,
+    params: Option<Value>,
+) -> ToolCallValidationResult<ToolCallParams> {
+    let params = params
+        .and_then(|value| value.as_object().cloned())
+        .ok_or_else(|| {
+            Box::new(invalid_params(
+                id.clone(),
+                "MCP tools/call requires object params",
+            ))
+        })?;
+    let name = params.get("name").and_then(Value::as_str).ok_or_else(|| {
+        Box::new(invalid_params(
+            id.clone(),
+            "MCP tools/call requires a tool name",
+        ))
+    })?;
+
+    Ok(ToolCallParams {
+        name: name.to_string(),
+        arguments: params.get("arguments").cloned(),
+    })
+}
+
+fn parse_no_arguments(
+    id: Option<Value>,
+    tool_name: &str,
+    arguments: Option<Value>,
+) -> ToolCallValidationResult<NoArguments> {
+    let Some(arguments) = arguments else {
+        return Ok(NoArguments::default());
+    };
+
+    let Some(arguments) = arguments.as_object() else {
+        return Err(Box::new(invalid_params(
+            id,
+            format!("MCP tool `{tool_name}` requires object arguments"),
+        )));
+    };
+
+    if !arguments.is_empty() {
+        return Err(Box::new(invalid_params(
+            id,
+            format!("MCP tool `{tool_name}` does not accept arguments"),
+        )));
+    }
+
+    Ok(NoArguments::default())
+}
+
+fn validate_tool_call_arguments(
+    id: Option<Value>,
+    tool: McpTool,
+    tool_name: &str,
+    arguments: Option<Value>,
+) -> ToolCallValidationResult<()> {
+    match tool {
+        McpTool::Status | McpTool::ActivePlanValidation => {
+            parse_no_arguments(id, tool_name, arguments).map(|_| ())
+        }
+    }
+}
+
 fn tool_from_name(name: &str) -> Option<McpTool> {
     match name {
         STATUS_TOOL_NAME => Some(McpTool::Status),
@@ -484,23 +578,25 @@ fn handle_tools_call(
     id: Option<Value>,
     params: Option<Value>,
 ) -> Result<JsonRpcResponse, VibeError> {
-    let params = params
-        .and_then(|value| value.as_object().cloned())
-        .ok_or_else(|| {
-            VibeError::InvalidArguments("MCP tools/call requires object params".to_string())
-        })?;
-    let name = params.get("name").and_then(Value::as_str).ok_or_else(|| {
-        VibeError::InvalidArguments("MCP tools/call requires a tool name".to_string())
-    })?;
+    let params = match parse_tool_call_params(id.clone(), params) {
+        Ok(params) => params,
+        Err(response) => return Ok(*response),
+    };
 
-    let Some(tool) = tool_from_name(name) else {
+    let Some(tool) = tool_from_name(&params.name) else {
         return Ok(json_rpc_error(
             id,
             -32602,
-            format!("unknown MCP tool `{name}`"),
+            format!("unknown MCP tool `{}`", params.name),
             None,
         ));
     };
+
+    if let Err(response) =
+        validate_tool_call_arguments(id.clone(), tool, &params.name, params.arguments)
+    {
+        return Ok(*response);
+    }
 
     let result = match tool {
         McpTool::Status => handle_status_tool_call(config)?,
@@ -788,6 +884,36 @@ mod tests {
     }
 
     #[test]
+    fn tools_list_uses_descriptor_input_schema_for_current_tools() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        let tools = responses[0]["result"]["tools"].as_array().expect("tools");
+        for tool in tools {
+            assert_eq!(tool["inputSchema"]["type"], "object");
+            assert_eq!(
+                tool["inputSchema"]["properties"]
+                    .as_object()
+                    .expect("properties")
+                    .len(),
+                0
+            );
+            assert_eq!(tool["inputSchema"]["additionalProperties"], false);
+        }
+    }
+
+    #[test]
     fn initialize_echoes_client_protocol_version() {
         let workspace = TestWorkspace::new();
         let input = framed_messages(&[
@@ -870,6 +996,32 @@ mod tests {
     }
 
     #[test]
+    fn session_handles_status_tool_call_request_without_arguments_field() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"status-no-args","method":"tools/call","params":{"name":"vibe_sentinel_status"}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], "status-no-args");
+        assert_eq!(responses[0]["result"]["isError"], false);
+        assert_eq!(
+            responses[0]["result"]["structuredContent"]["project_name"],
+            "vibe-sentinel"
+        );
+    }
+
+    #[test]
     fn session_handles_active_plan_validation_tool_call_request() {
         let workspace = TestWorkspace::new();
         let input = framed_messages(&[
@@ -892,6 +1044,188 @@ mod tests {
         assert_eq!(responses[0]["result"]["isError"], false);
         assert_eq!(structured["project_name"], "vibe-sentinel");
         assert_eq!(structured["plans"].as_array().expect("plans").len(), 1);
+    }
+
+    #[test]
+    fn session_handles_active_plan_validation_tool_call_request_without_arguments_field() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"plans-no-args","method":"tools/call","params":{"name":"vibe_sentinel_validate_active_plans"}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], "plans-no-args");
+        assert_eq!(responses[0]["result"]["isError"], false);
+        assert_eq!(
+            responses[0]["result"]["structuredContent"]["project_name"],
+            "vibe-sentinel"
+        );
+    }
+
+    #[test]
+    fn session_rejects_status_tool_call_with_unexpected_arguments() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"vibe_sentinel_status","arguments":{"unexpected":true}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], 10);
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert!(responses[0]["error"]["message"]
+            .as_str()
+            .expect("message")
+            .contains("does not accept arguments"));
+    }
+
+    #[test]
+    fn session_rejects_active_plan_validation_tool_call_with_unexpected_arguments() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"vibe_sentinel_validate_active_plans","arguments":{"path":"docs/exec-plans/active/example.md"}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], 11);
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert!(responses[0]["error"]["message"]
+            .as_str()
+            .expect("message")
+            .contains("does not accept arguments"));
+    }
+
+    #[test]
+    fn session_rejects_status_tool_call_with_non_object_arguments() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"vibe_sentinel_status","arguments":true}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], 12);
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert!(responses[0]["error"]["message"]
+            .as_str()
+            .expect("message")
+            .contains("requires object arguments"));
+    }
+
+    #[test]
+    fn session_rejects_active_plan_validation_tool_call_with_non_object_arguments() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"vibe_sentinel_validate_active_plans","arguments":["bad"]}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], 13);
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert!(responses[0]["error"]["message"]
+            .as_str()
+            .expect("message")
+            .contains("requires object arguments"));
+    }
+
+    #[test]
+    fn session_rejects_tools_call_with_non_object_params_without_aborting() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":14,"method":"tools/call","params":true}"#,
+            r#"{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"vibe_sentinel_status","arguments":{}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses.len(), 2);
+        assert_eq!(responses[0]["id"], 14);
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert_eq!(responses[1]["id"], 15);
+        assert_eq!(responses[1]["result"]["isError"], false);
+    }
+
+    #[test]
+    fn session_rejects_tools_call_without_name_without_aborting() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"arguments":{}}}"#,
+            r#"{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"vibe_sentinel_status","arguments":{}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses.len(), 2);
+        assert_eq!(responses[0]["id"], 16);
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert_eq!(responses[1]["id"], 17);
+        assert_eq!(responses[1]["result"]["isError"], false);
     }
 
     #[test]
