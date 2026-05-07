@@ -11,3 +11,4 @@ Keep completed plans for historical context and future agent runs.
 - `status-json.md`: structured JSON output mode for the existing `status` command.
 - `post-tui-cleanup.md`: post-TUI CLI guidance, TUI setup cleanup, and shipped-doc alignment.
 - `tui-status.md`: read-only ratatui status view over the existing readiness report.
+- `mcp-status-tool.md`: local read-only MCP status tool over the existing readiness report.
