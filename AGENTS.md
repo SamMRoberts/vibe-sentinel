@@ -18,7 +18,7 @@ or is not included in the harness scope.
 | --- | --- |
 | Harness scope, exclusions, approvals | `docs/harness/scope.md` |
 | Initialization answers and setup history | `docs/harness/initialization.md` |
-| Modified TDD operating model | `docs/harness/operating-model.md` |
+| TDD operating model | `docs/harness/operating-model.md` |
 | Documentation map | `docs/README.md` |
 | Product intent and users | `docs/app-specs/app-spec.md` |
 | Product specs index | `docs/app-specs/index.md` |
@@ -109,6 +109,14 @@ tests exist and pass.
 Follow `docs/security.md` and `docs/reliability.md`.
 Do not weaken auth, validation, privacy, rate limits, retries, timeouts,
 observability, or error handling without explicit harness approval.
+
+## Symdex MCP Tool Usage
+
+Use symdex MCP tools as the first evidence pass when they can answer a question
+from the local index. They are designed to provide compact, metadata-first
+context for agents without reading whole files or exposing source text.
+
+Symdex usage guidlines are in `docs/references/symdex-mcp-tools-usage.md`.
 
 ## References
 
