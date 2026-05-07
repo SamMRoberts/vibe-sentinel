@@ -2,8 +2,9 @@ use std::env;
 use std::process::ExitCode;
 
 use vibe_sentinel::adapters::fs::FsWorkspaceProbe;
-use vibe_sentinel::cli::{execute_with_probe, parse_args, render_status, OutputFormat};
+use vibe_sentinel::cli::{execute_with_probe, parse_args, render_status, CliCommand, OutputFormat};
 use vibe_sentinel::domain::VibeError;
+use vibe_sentinel::mcp::{run_stdio_server, McpServerConfig};
 use vibe_sentinel::tui::run_status_tui;
 
 fn main() -> ExitCode {
@@ -30,6 +31,11 @@ where
     let root = env::current_dir().map_err(|error| {
         VibeError::WorkspaceUnreadable(format!("could not read current directory: {error}"))
     })?;
+    if args.command == CliCommand::McpServe {
+        run_stdio_server(McpServerConfig { root })?;
+        return Ok(None);
+    }
+
     let report = execute_with_probe(args.clone(), FsWorkspaceProbe::new(root))?;
     match args.output_format {
         OutputFormat::Tui => {
