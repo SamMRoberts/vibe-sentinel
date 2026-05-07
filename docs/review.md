@@ -4,7 +4,7 @@
 
 1. Review the diff before final response.
 2. Check that changes stay inside harness scope.
-3. Check feature work followed the modified TDD artifacts in the active plan.
+3. Check feature work followed the TDD artifacts in the active plan.
 4. Run relevant validation from `docs/tooling.md`.
 5. Update docs when durable knowledge changes.
 6. Report unresolved risks clearly.

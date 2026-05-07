@@ -1,9 +1,12 @@
 use crate::domain::{
-    ActivePlansValidationReport, PlanValidationReport, ReadinessState, StatusCheck, StatusReport,
-    TddGateAction, TddGateReport, TddWorkflowPhase, ValidationCheck, ValidationEvidence,
-    ValidationIssue, ValidationSeverity, ValidationState, VibeError,
+    ActivePlanResource, ActivePlanResourceRead, ActivePlansValidationReport, PlanValidationReport,
+    ReadinessState, StatusCheck, StatusReport, TddGateAction, TddGateReport, TddWorkflowPhase,
+    ValidationCheck, ValidationEvidence, ValidationIssue, ValidationSeverity, ValidationState,
+    VibeError,
 };
 use crate::ports::WorkspaceProbe;
+
+pub const ACTIVE_PLAN_RESOURCE_URI_PREFIX: &str = "vibe-sentinel://active-plans/";
 
 pub struct StatusService<P: WorkspaceProbe> {
     probe: P,
@@ -14,6 +17,10 @@ pub struct PlanValidationService<P: WorkspaceProbe> {
 }
 
 pub struct TddGateService<P: WorkspaceProbe> {
+    probe: P,
+}
+
+pub struct ActivePlanResourceService<P: WorkspaceProbe> {
     probe: P,
 }
 
@@ -67,6 +74,52 @@ enum PlanSection {
     ImplementationChecklist,
     ValidationLog,
     Other,
+}
+
+impl<P: WorkspaceProbe> ActivePlanResourceService<P> {
+    pub fn new(probe: P) -> Self {
+        Self { probe }
+    }
+
+    pub fn list_resources(&self) -> Result<Vec<ActivePlanResource>, VibeError> {
+        let _ = self.probe.active_plan_paths()?;
+        Ok(Vec::new())
+    }
+
+    pub fn read_resource(&self, uri: &str) -> Result<ActivePlanResourceRead, VibeError> {
+        let allowed_paths = self.probe.active_plan_paths()?;
+        let _ = Self::path_from_resource_uri(uri, &allowed_paths)?;
+        Err(VibeError::InvalidArguments(format!(
+            "unknown active plan resource `{uri}`"
+        )))
+    }
+
+    pub fn resource_from_path(path: &str) -> ActivePlanResource {
+        ActivePlanResource {
+            uri: active_plan_resource_uri(path),
+            name: active_plan_resource_name(path),
+            path: path.to_string(),
+            mime_type: "text/markdown".to_string(),
+        }
+    }
+
+    pub fn path_from_resource_uri(
+        uri: &str,
+        allowed_paths: &[String],
+    ) -> Result<String, VibeError> {
+        let _ = allowed_paths;
+        Err(VibeError::InvalidArguments(format!(
+            "unknown active plan resource `{uri}`"
+        )))
+    }
+}
+
+pub fn active_plan_resource_uri(path: &str) -> String {
+    format!("{ACTIVE_PLAN_RESOURCE_URI_PREFIX}{path}")
+}
+
+pub fn active_plan_resource_name(path: &str) -> String {
+    path.to_string()
 }
 
 impl<P: WorkspaceProbe> PlanValidationService<P> {
@@ -1003,7 +1056,7 @@ mod tests {
     fn ready_plan_text() -> &'static str {
         r#"# Execution Plan: Example
 
-## Modified TDD artifacts
+## TDD artifacts
 
 ### Reviewed Plan
 
@@ -1041,7 +1094,7 @@ mod tests {
     fn plan_created_text() -> &'static str {
         r#"# Execution Plan: Created
 
-## Modified TDD artifacts
+## TDD artifacts
 
 ### Reviewed Plan
 
@@ -1073,7 +1126,7 @@ mod tests {
     fn implementation_ready_plan_text() -> &'static str {
         r#"# Execution Plan: Implementation Ready
 
-## Modified TDD artifacts
+## TDD artifacts
 
 ### Reviewed Plan
 

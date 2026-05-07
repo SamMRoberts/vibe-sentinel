@@ -71,7 +71,7 @@ validation semantics.
 - Validation commands listed in `docs/tooling.md` are run or explicitly reported
   if unavailable.
 
-## Modified TDD artifacts
+## TDD artifacts
 
 ### Feature Info
 
@@ -301,7 +301,7 @@ module src/mcp.rs
 ## Decisions
 
 - First slice is read-only: avoids creating plan mutation paths that could bypass
-  modified TDD review steps.
+  TDD review steps.
 - Gate semantics live in core: preserves the architecture boundary requiring MCP
   adapters to stay thin.
 - Existing validation service is reused: prevents two independent parsers for the

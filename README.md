@@ -1,7 +1,7 @@
 # vibe-sentinel
 
 `vibe-sentinel` is a Rust CLI, ratatui TUI, and MCP product built under the
-repository's modified TDD harness.
+repository's TDD harness.
 
 ## Current Surfaces
 
@@ -39,7 +39,7 @@ The MCP server exposes read-only, idempotent local tools:
 - `vibe_sentinel_status`: structured output equivalent to
 	`vibe-sentinel status --json`.
 - `vibe_sentinel_validate_active_plans`: implementation-readiness validation for
-	active execution plans under the modified TDD workflow.
+	active execution plans under the TDD workflow.
 
 ## Validation
 

@@ -5,10 +5,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::adapters::fs::FsWorkspaceProbe;
-use crate::core::{PlanValidationService, StatusService, TddGateService};
+use crate::core::{ActivePlanResourceService, PlanValidationService, StatusService, TddGateService};
 use crate::domain::{
-    PlanValidationReport, StatusCheck, StatusReport, TddGateAction, TddGateReport,
-    TddWorkflowPhase, ValidationIssue, VibeError,
+    ActivePlanResource, ActivePlanResourceRead, PlanValidationReport, StatusCheck, StatusReport,
+    TddGateAction, TddGateReport, TddWorkflowPhase, ValidationIssue, VibeError,
 };
 use crate::ports::WorkspaceProbe;
 
@@ -117,6 +117,11 @@ struct JsonRpcError {
 struct ToolCallParams {
     name: String,
     arguments: Option<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResourceReadParams {
+    uri: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
@@ -273,6 +278,19 @@ pub fn evaluate_tdd_gate_tool<P: WorkspaceProbe>(
     TddGateService::new(probe)
         .evaluate(next_action)
         .map(tdd_gate_response_from_report)
+}
+
+pub fn evaluate_active_plan_resources_list<P: WorkspaceProbe>(
+    probe: P,
+) -> Result<Vec<ActivePlanResource>, VibeError> {
+    ActivePlanResourceService::new(probe).list_resources()
+}
+
+pub fn evaluate_active_plan_resource_read<P: WorkspaceProbe>(
+    probe: P,
+    uri: &str,
+) -> Result<ActivePlanResourceRead, VibeError> {
+    ActivePlanResourceService::new(probe).read_resource(uri)
 }
 
 pub fn tdd_gate_response_from_report(report: TddGateReport) -> McpTddGateResponse {
@@ -483,6 +501,8 @@ fn handle_json_rpc_request(
         "notifications/initialized" => Ok(None),
         "tools/list" => handle_tools_list(request.id).map(Some),
         "tools/call" => handle_tools_call(config, request.id, request.params).map(Some),
+        "resources/list" => handle_resources_list(config, request.id).map(Some),
+        "resources/read" => handle_resources_read(config, request.id, request.params).map(Some),
         method => Ok(Some(json_rpc_error(
             request.id,
             -32601,
@@ -504,6 +524,9 @@ fn handle_initialize(
             "capabilities": {
                 "tools": {
                     "listChanged": false
+                },
+                "resources": {
+                    "listChanged": false
                 }
             },
             "serverInfo": {
@@ -520,6 +543,68 @@ fn initialize_protocol_version(params: Option<&Value>) -> String {
         .and_then(Value::as_str)
         .unwrap_or("2025-06-18")
         .to_string()
+}
+
+fn parse_resource_read_params(
+    id: Option<Value>,
+    params: Option<Value>,
+) -> ToolCallValidationResult<ResourceReadParams> {
+    let _ = params;
+    Err(Box::new(invalid_params(
+        id,
+        "MCP resources/read requires object params with a string uri",
+    )))
+}
+
+fn handle_resources_list(
+    config: &McpServerConfig,
+    id: Option<Value>,
+) -> Result<JsonRpcResponse, VibeError> {
+    let resources = evaluate_active_plan_resources_list(FsWorkspaceProbe::new(config.root.clone()))?
+        .into_iter()
+        .map(resource_descriptor_json)
+        .collect::<Vec<_>>();
+    Ok(json_rpc_success(
+        id,
+        serialize_protocol_result(serde_json::json!({ "resources": resources }))?,
+    ))
+}
+
+fn handle_resources_read(
+    config: &McpServerConfig,
+    id: Option<Value>,
+    params: Option<Value>,
+) -> Result<JsonRpcResponse, VibeError> {
+    let params = match parse_resource_read_params(id.clone(), params) {
+        Ok(params) => params,
+        Err(response) => return Ok(*response),
+    };
+    let read = evaluate_active_plan_resource_read(
+        FsWorkspaceProbe::new(config.root.clone()),
+        &params.uri,
+    )?;
+    Ok(json_rpc_success(
+        id,
+        serialize_protocol_result(resource_content_json(read))?,
+    ))
+}
+
+fn resource_descriptor_json(resource: ActivePlanResource) -> Value {
+    serde_json::json!({
+        "uri": resource.uri,
+        "name": resource.name,
+        "mimeType": resource.mime_type
+    })
+}
+
+fn resource_content_json(read: ActivePlanResourceRead) -> Value {
+    serde_json::json!({
+        "contents": [{
+            "uri": read.uri,
+            "mimeType": read.mime_type,
+            "text": read.text
+        }]
+    })
 }
 
 fn handle_tools_list(id: Option<Value>) -> Result<JsonRpcResponse, VibeError> {
@@ -1701,7 +1786,7 @@ mod tests {
     fn ready_plan_fixture() -> &'static str {
         r#"# Execution Plan: Example
 
-## Modified TDD artifacts
+## TDD artifacts
 
 ### Reviewed Plan
 

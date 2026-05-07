@@ -57,7 +57,7 @@ Added an approved read-only ratatui status view over the existing readiness repo
 - [x] TUI render/state behavior is covered by non-interactive tests.
 - [x] Full validation passes before completion.
 
-## Modified TDD artifacts
+## TDD artifacts
 
 ### Feature Info
 

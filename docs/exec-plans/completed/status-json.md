@@ -54,7 +54,7 @@ Added an approved structured JSON output mode to the existing `vibe-sentinel sta
 - [x] JSON unit and integration tests pass.
 - [x] Full validation passes before completion.
 
-## Modified TDD artifacts
+## TDD artifacts
 
 ### Feature Info
 

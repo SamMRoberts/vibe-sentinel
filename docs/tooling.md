@@ -22,7 +22,7 @@
 - `cargo clippy --all-targets --all-features -- -D warnings`: verify Rust lint quality.
 - `cargo test --all`: run all Rust tests.
 - `cargo build --all-targets`: verify build targets.
-- `python3 scripts/validate_tdd_workflow.py`: verify active feature plans contain required modified TDD artifacts.
+- `python3 scripts/validate_tdd_workflow.py`: verify active feature plans contain required TDD artifacts.
 - `python3 ${AGENTIC_CODING_HARNESS_PLUGIN}/scripts/validate_harness.py`: validate harness structure when the plugin path is available.
 - `python3 ${AGENTIC_CODING_HARNESS_PLUGIN}/scripts/harness_section_status.py --dir .harness-validation`: summarize harness section-state review artifacts and report the next refinement action.
 

@@ -4,7 +4,7 @@
 
 Add a second local MCP surface for `vibe-sentinel`: a read-only active-plan
 validation tool that helps coding agents verify whether current execution plans
-are ready for implementation under the modified TDD workflow.
+are ready for implementation under the TDD workflow.
 
 ## Users
 

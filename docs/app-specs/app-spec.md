@@ -6,7 +6,7 @@ vibe-sentinel
 
 ## Purpose
 
-Rust CLI, ratatui TUI, and MCP feature development under a strict modified TDD workflow.
+Rust CLI, ratatui TUI, and MCP feature development under a strict TDD workflow.
 
 ## Primary users/operators
 

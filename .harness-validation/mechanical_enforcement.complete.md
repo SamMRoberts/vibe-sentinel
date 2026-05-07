@@ -2,7 +2,7 @@
 
 ## Current content
 
-`docs/harness/operating-model.md` requires modified TDD artifacts and plan validation. `docs/tooling.md` now lists TDD validation, harness structure validation, and section-state status commands.
+`docs/harness/operating-model.md` requires TDD artifacts and plan validation. `docs/tooling.md` now lists TDD validation, harness structure validation, and section-state status commands.
 
 ## Review notes
 

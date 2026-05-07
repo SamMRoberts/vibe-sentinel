@@ -79,7 +79,7 @@ results through the existing local stdio MCP server.
 - Validation commands in this plan pass or skipped commands are recorded with
   risk.
 
-## Modified TDD artifacts
+## TDD artifacts
 
 ### Feature Info
 

@@ -9,7 +9,7 @@
 
 ## Summary
 
-Bootstrap `vibe-sentinel` from a harness-only repository into a Rust product workspace under the modified TDD workflow. The first implementation slice is a narrow CLI status path that reports local harness and workspace readiness signals. The work proceeds through reviewed architecture pseudocode, mockable skeletons, skeleton-level tests, and one-unit-at-a-time implementation before product behavior is filled in.
+Bootstrap `vibe-sentinel` from a harness-only repository into a Rust product workspace under the TDD workflow. The first implementation slice is a narrow CLI status path that reports local harness and workspace readiness signals. The work proceeds through reviewed architecture pseudocode, mockable skeletons, skeleton-level tests, and one-unit-at-a-time implementation before product behavior is filled in.
 
 ## Scope
 
@@ -61,11 +61,11 @@ Bootstrap `vibe-sentinel` from a harness-only repository into a Rust product wor
 - Each implementation unit is completed separately, with relevant validation recorded after that unit.
 - Final validation results distinguish successful, failed, skipped, and unavailable commands.
 
-## Modified TDD artifacts
+## TDD artifacts
 
 ### Feature Info
 
-- Goal: bootstrap the first approved `vibe-sentinel` Rust product slice as a local CLI status command without bypassing the modified TDD workflow.
+- Goal: bootstrap the first approved `vibe-sentinel` Rust product slice as a local CLI status command without bypassing the TDD workflow.
 - Acceptance criteria:
   - Document the CLI status vertical slice before creating Rust skeletons.
   - Proposed public command is `vibe-sentinel status`, pending explicit human approval before skeleton creation.

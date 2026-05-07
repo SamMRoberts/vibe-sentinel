@@ -75,7 +75,7 @@ application-core behavior.
 - Existing `initialize`, `tools/list`, unknown-tool handling, CLI status
   surfaces, and active-plan validation semantics remain compatible.
 
-## Modified TDD artifacts
+## TDD artifacts
 
 ### Feature Info
 

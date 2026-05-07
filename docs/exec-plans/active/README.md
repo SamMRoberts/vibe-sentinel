@@ -4,7 +4,7 @@
 Store active plans here.
 
 Use `../plan-template.md`.
-Feature plans must preserve all modified TDD artifact sections.
+Feature plans must preserve all TDD artifact sections.
 Run `python3 scripts/validate_tdd_workflow.py <plan>` before implementation.
 
 Move completed plans to `../completed/` after validation.

@@ -3,7 +3,7 @@
 ## Purpose
 
 This file is the routing map for coding agents working on vibe-sentinel.
-Project purpose: Rust CLI, ratatui TUI, and MCP feature development under a strict modified TDD workflow.
+Project purpose: Rust CLI, ratatui TUI, and MCP feature development under a strict TDD workflow.
 Keep this file short; put durable project knowledge in `docs/`.
 
 ## Harness rule
@@ -72,7 +72,7 @@ reliability, or user-visible behavior changes.
 Active plans live in `docs/exec-plans/active/`.
 Completed plans move to `docs/exec-plans/completed/`.
 Use `docs/exec-plans/plan-template.md`.
-Feature plans must include the modified TDD artifacts required by
+Feature plans must include the TDD artifacts required by
 `docs/harness/operating-model.md`.
 
 ## Documentation requirements

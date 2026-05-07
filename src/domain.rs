@@ -106,6 +106,21 @@ pub struct ActivePlansValidationReport {
     pub plans: Vec<PlanValidationReport>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ActivePlanResource {
+    pub uri: String,
+    pub name: String,
+    pub path: String,
+    pub mime_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ActivePlanResourceRead {
+    pub uri: String,
+    pub mime_type: String,
+    pub text: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TddGateAction {

@@ -2,7 +2,7 @@
 
 ## Current content
 
-`AGENTS.md` defines the project purpose as Rust CLI, ratatui TUI, and MCP feature development under a strict modified TDD workflow. `docs/harness/scope.md` reinforces the project name, purpose, and users.
+`AGENTS.md` defines the project purpose as Rust CLI, ratatui TUI, and MCP feature development under a strict TDD workflow. `docs/harness/scope.md` reinforces the project name, purpose, and users.
 
 ## Review notes
 

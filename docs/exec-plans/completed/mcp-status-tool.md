@@ -12,7 +12,7 @@
 Implement the first MCP surface for `vibe-sentinel`: a local, read-only status
 tool launched with `vibe-sentinel mcp serve` and backed by the existing status
 evaluation path. This plan starts with the public contract and architecture
-pseudocode required by the modified TDD workflow, then proceeds through
+pseudocode required by the TDD workflow, then proceeds through
 skeletons, fixture tests, and one implementation unit at a time.
 
 ## Scope
@@ -67,7 +67,7 @@ skeletons, fixture tests, and one implementation unit at a time.
 - Validation commands in this plan pass or skipped commands are recorded with
   risk.
 
-## Modified TDD artifacts
+## TDD artifacts
 
 ### Feature Info
 
@@ -359,7 +359,7 @@ module tests/mcp_status fixtures or src/mcp.rs tests
 
 - `docs/app-specs/mcp-status-tool-slice.md`: define first MCP public contract.
 - `docs/app-specs/index.md`: link the MCP status slice spec.
-- `docs/exec-plans/active/mcp-status-tool.md`: track the modified TDD work.
+- `docs/exec-plans/active/mcp-status-tool.md`: track the TDD work.
 - `src/lib.rs`: export a future `mcp` module.
 - `src/mcp.rs`: add the thin MCP status surface.
 - `src/cli.rs`: parse `mcp serve` while preserving existing status commands.

@@ -24,7 +24,7 @@ Make the existing coding harness operational for repeatable status review by add
 ### Out of scope
 
 - Runtime changes to CLI, TUI, MCP, domain, adapter, or status evaluation code.
-- Scope expansion or bypassing the modified TDD workflow.
+- Scope expansion or bypassing the TDD workflow.
 - Dependency, deployment, security model, or wire-contract changes.
 - Moving completed plans or changing product behavior.
 
@@ -48,13 +48,13 @@ Make the existing coding harness operational for repeatable status review by add
 - `docs/review.md` documents the expected harness status handoff format.
 - Harness validation commands are run or any inability to run them is recorded.
 
-## Modified TDD artifacts
+## TDD artifacts
 
 ### Feature Info
 
 - Goal: Turn the existing mostly healthy harness into a repeatable, self-describing harness-review workflow.
 - Acceptance criteria: Section-state artifacts exist, the missing open-questions section is added, automation guidance is concrete, and handoff expectations are documented.
-- Constraints: Do not change runtime product behavior; preserve the modified TDD workflow; keep durable knowledge under `docs/`.
+- Constraints: Do not change runtime product behavior; preserve the TDD workflow; keep durable knowledge under `docs/`.
 - Non-goals: Do not add status-command checks for `.harness-validation/`; do not modify Rust source files.
 
 ### Research Notes

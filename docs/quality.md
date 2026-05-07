@@ -2,7 +2,7 @@
 
 ## Quality invariants
 
-- Follow the modified TDD workflow for all feature development.
+- Follow the TDD workflow for all feature development.
 - Prefer legible, tested, documented patterns.
 - Validate data at CLI, TUI, MCP, storage, and external-process boundaries.
 - Avoid hidden coupling between application core and UI/protocol adapters.

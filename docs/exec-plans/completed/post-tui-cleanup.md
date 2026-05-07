@@ -60,7 +60,7 @@ Clean up post-TUI drift after the completed text, JSON, and TUI status slices. T
 - Technical-debt tracker records known TDD-validator and TUI lifecycle follow-ups.
 - Full validation passes before completion.
 
-## Modified TDD artifacts
+## TDD artifacts
 
 ### Feature Info
 

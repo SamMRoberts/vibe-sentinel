@@ -7,7 +7,7 @@ Execution plans are first-class repo artifacts.
 
 - `active/`: plans currently being implemented.
 - `completed/`: plans moved here after validation.
-- `plan-template.md`: required plan shape with modified TDD artifacts.
+- `plan-template.md`: required plan shape with TDD artifacts.
 - `tech-debt-tracker.md`: known drift, stale docs, missing checks, and cleanup work.
 
 Create a plan before multi-file, architectural, security, reliability, or user-visible behavior changes.

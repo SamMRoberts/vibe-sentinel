@@ -2,7 +2,7 @@
 
 ## Current content
 
-`docs/harness/operating-model.md` defines the modified TDD sequence from discovery through plan, pseudocode, skeletons, skeleton tests, one-unit implementation, validation, and review.
+`docs/harness/operating-model.md` defines the TDD sequence from discovery through plan, pseudocode, skeletons, skeleton tests, one-unit implementation, validation, and review.
 
 ## Review notes
 
