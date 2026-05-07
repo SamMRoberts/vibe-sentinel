@@ -210,10 +210,22 @@ fn read_content_length_message<R: BufRead>(reader: &mut R) -> Result<Option<Stri
     let length = content_length.ok_or_else(|| {
         VibeError::InvalidArguments("missing MCP Content-Length header".to_string())
     })?;
-    let mut body = vec![0; length];
-    reader.read_exact(&mut body).map_err(|error| {
-        VibeError::InvalidArguments(format!("could not read MCP message body: {error}"))
-    })?;
+    let mut body = Vec::with_capacity(length);
+    while body.len() < length {
+        let buffer = reader.fill_buf().map_err(|error| {
+            VibeError::InvalidArguments(format!("could not read MCP message body: {error}"))
+        })?;
+        if buffer.is_empty() {
+            return Err(VibeError::InvalidArguments(
+                "could not read MCP message body: unexpected end of stream".to_string(),
+            ));
+        }
+
+        let remaining = length - body.len();
+        let chunk_len = remaining.min(buffer.len());
+        body.extend_from_slice(&buffer[..chunk_len]);
+        reader.consume(chunk_len);
+    }
 
     String::from_utf8(body).map(Some).map_err(|error| {
         VibeError::InvalidArguments(format!("MCP message body is not UTF-8: {error}"))
@@ -406,6 +418,7 @@ fn serialize_protocol_result<T: Serialize>(value: T) -> Result<Value, VibeError>
 
 #[cfg(test)]
 mod tests {
+    use std::io::BufReader;
     use std::io::{Cursor, Write};
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -488,6 +501,18 @@ mod tests {
         write_content_length_message(&mut output, "{\"jsonrpc\":\"2.0\"}")
             .expect("write framed payload");
         let mut input = Cursor::new(output);
+        let payload = read_content_length_message(&mut input).expect("read framed payload");
+
+        assert_eq!(payload, Some("{\"jsonrpc\":\"2.0\"}".to_string()));
+    }
+
+    #[test]
+    fn content_length_round_trips_json_payload_with_bufreader() {
+        let mut output = Vec::new();
+
+        write_content_length_message(&mut output, "{\"jsonrpc\":\"2.0\"}")
+            .expect("write framed payload");
+        let mut input = BufReader::with_capacity(8, Cursor::new(output));
         let payload = read_content_length_message(&mut input).expect("read framed payload");
 
         assert_eq!(payload, Some("{\"jsonrpc\":\"2.0\"}".to_string()));
