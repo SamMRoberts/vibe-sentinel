@@ -13,7 +13,7 @@ task-specific docs routed by the table of contents. Classify the request with
 the scope gate. Multi-file, architectural, user-visible, security, reliability,
 or unclear work requires an active execution plan.
 
-## Modified TDD workflow
+## TDD workflow
 
 All feature development must follow this sequence in order:
 
