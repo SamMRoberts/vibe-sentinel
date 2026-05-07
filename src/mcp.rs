@@ -245,7 +245,7 @@ fn handle_json_rpc_request(
     }
 
     match request.method.as_str() {
-        "initialize" => handle_initialize(request.id).map(Some),
+        "initialize" => handle_initialize(request.id, request.params).map(Some),
         "notifications/initialized" => Ok(None),
         "tools/list" => handle_tools_list(request.id).map(Some),
         "tools/call" => handle_tools_call(config, request.id, request.params).map(Some),
@@ -258,11 +258,15 @@ fn handle_json_rpc_request(
     }
 }
 
-fn handle_initialize(id: Option<Value>) -> Result<JsonRpcResponse, VibeError> {
+fn handle_initialize(
+    id: Option<Value>,
+    params: Option<Value>,
+) -> Result<JsonRpcResponse, VibeError> {
+    let protocol_version = initialize_protocol_version(params.as_ref());
     Ok(json_rpc_success(
         id,
         serialize_protocol_result(serde_json::json!({
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": protocol_version,
             "capabilities": {
                 "tools": {}
             },
@@ -272,6 +276,14 @@ fn handle_initialize(id: Option<Value>) -> Result<JsonRpcResponse, VibeError> {
             }
         }))?,
     ))
+}
+
+fn initialize_protocol_version(params: Option<&Value>) -> String {
+    params
+        .and_then(|params| params.get("protocolVersion"))
+        .and_then(Value::as_str)
+        .unwrap_or("2025-06-18")
+        .to_string()
 }
 
 fn handle_tools_list(id: Option<Value>) -> Result<JsonRpcResponse, VibeError> {
@@ -520,6 +532,32 @@ mod tests {
         assert_eq!(
             responses[1]["result"]["tools"][0]["annotations"]["readOnlyHint"],
             true
+        );
+    }
+
+    #[test]
+    fn initialize_echoes_client_protocol_version() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":3,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"vscode","version":"test"}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], 3);
+        assert_eq!(responses[0]["result"]["protocolVersion"], "2025-06-18");
+        assert_eq!(
+            responses[0]["result"]["serverInfo"]["name"],
+            "vibe-sentinel"
         );
     }
 

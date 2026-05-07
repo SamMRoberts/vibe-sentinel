@@ -196,7 +196,8 @@ module mcp
   fn read_content_length_message<R: BufRead>(reader) -> Result<Option<String>, VibeError>
   fn write_content_length_message<W: Write>(writer, payload) -> Result<(), VibeError>
   fn handle_json_rpc_request(config, request) -> Result<Option<JsonRpcResponse>, VibeError>
-  fn handle_initialize(id) -> Result<JsonRpcResponse, VibeError>
+  fn handle_initialize(id, params) -> Result<JsonRpcResponse, VibeError>
+  fn initialize_protocol_version(params) -> String
   fn handle_tools_list(id) -> Result<JsonRpcResponse, VibeError>
   fn handle_tools_call(config, id, params) -> Result<JsonRpcResponse, VibeError>
   fn json_rpc_success(id, result) -> JsonRpcResponse
@@ -210,6 +211,7 @@ module tests/mcp_status fixtures or src/mcp.rs tests
   fn mcp_serve_command_is_parsed_without_changing_status_commands()
   fn content_length_round_trips_json_payload()
   fn session_handles_initialize_and_tools_list_requests()
+  fn initialize_echoes_client_protocol_version()
   fn session_handles_status_tool_call_request()
   fn session_maps_unknown_tool_to_invalid_request_error()
   fn session_maps_workspace_probe_errors_to_tool_error_payload()
@@ -330,6 +332,10 @@ module tests/mcp_status fixtures or src/mcp.rs tests
 - 2026-05-07: `cargo test mcp::tests` passed with 11 MCP tests after the stdio flush regression test was added.
 - 2026-05-07: Subprocess initialize smoke test against `target/debug/vibe-sentinel mcp serve` returned `{"id": 1, "server": "vibe-sentinel"}` within the timeout while stdin stayed open.
 - 2026-05-07: Final stdio flush bugfix validation passed: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all`, `cargo build --all-targets`, `python3 scripts/validate_tdd_workflow.py docs/exec-plans/active/mcp-status-tool.md`, `python3 scripts/validate_tdd_workflow.py`, and `git --no-pager diff --check`.
+- 2026-05-07: VS Code MCP initialize follow-up: exact `.vscode/mcp.json` launch path uses `cargo run -- mcp serve`; subprocess smoke reproduced a framed response but showed the server returned protocol version `2024-11-05` when the client requested `2025-06-18`.
+- 2026-05-07: `cargo test initialize_echoes_client_protocol_version` failed before the protocol negotiation fix because initialize returned `2024-11-05`; passed after initialize began echoing the client-requested `protocolVersion` with a `2025-06-18` fallback.
+- 2026-05-07: Exact configured subprocess smoke test against `cargo run -- mcp serve` with a VS Code-style initialize payload returned `{"id": 0, "protocolVersion": "2025-06-18", "server": "vibe-sentinel"}` within the timeout.
+- 2026-05-07: Protocol negotiation follow-up validation passed: `cargo fmt`, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all`, `cargo build --all-targets`, `python3 scripts/validate_tdd_workflow.py docs/exec-plans/active/mcp-status-tool.md`, `python3 scripts/validate_tdd_workflow.py`, and `git --no-pager diff --check`.
 
 ### Review Notes
 
