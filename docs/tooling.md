@@ -9,6 +9,12 @@
 - MCP: thin protocol adapters over mockable application services.
 - Repository validation helpers may use Python 3 when they do not become runtime dependencies.
 
+## Local MCP command
+
+- `cargo run -- mcp serve`: start the local stdio MCP server.
+- `cargo test mcp::tests`: run MCP Content-Length, JSON-RPC, tool discovery,
+  status call, and error-payload fixture coverage.
+
 ## Validation commands
 
 - `cargo fmt --check`: verify Rust formatting.

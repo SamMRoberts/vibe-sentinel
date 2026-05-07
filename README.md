@@ -3,7 +3,7 @@
 `vibe-sentinel` is a Rust CLI, ratatui TUI, and MCP product built under the
 repository's modified TDD harness.
 
-## Current CLI
+## Current Surfaces
 
 Run the first vertical slice from the repository root:
 
@@ -28,6 +28,15 @@ execution plans, and Cargo workspace presence. JSON output includes the project
 name, aggregate readiness, and the ordered readiness checks. TUI mode renders the
 same readiness report and exits on `q` or `Esc`.
 
+For local MCP clients, start the read-only stdio server:
+
+```bash
+cargo run -- mcp serve
+```
+
+The MCP server exposes `vibe_sentinel_status`, a read-only, idempotent local
+tool with structured output equivalent to `vibe-sentinel status --json`.
+
 ## Validation
 
 ```bash
@@ -36,4 +45,10 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all
 cargo build --all-targets
 python3 scripts/validate_tdd_workflow.py
+```
+
+MCP protocol fixture coverage can be run with:
+
+```bash
+cargo test mcp::tests
 ```
