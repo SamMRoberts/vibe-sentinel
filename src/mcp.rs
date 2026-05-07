@@ -195,11 +195,15 @@ fn read_content_length_message<R: BufRead>(reader: &mut R) -> Result<Option<Stri
             break;
         }
 
-        if let Some(value) = header.strip_prefix("Content-Length:") {
-            let length = value.trim().parse::<usize>().map_err(|error| {
-                VibeError::InvalidArguments(format!("invalid MCP Content-Length header: {error}"))
-            })?;
-            content_length = Some(length);
+        if let Some((name, value)) = header.split_once(':') {
+            if name.eq_ignore_ascii_case("Content-Length") {
+                let length = value.trim().parse::<usize>().map_err(|error| {
+                    VibeError::InvalidArguments(format!(
+                        "invalid MCP Content-Length header: {error}"
+                    ))
+                })?;
+                content_length = Some(length);
+            }
         }
     }
 
@@ -268,7 +272,9 @@ fn handle_initialize(
         serialize_protocol_result(serde_json::json!({
             "protocolVersion": protocol_version,
             "capabilities": {
-                "tools": {}
+                "tools": {
+                    "listChanged": false
+                }
             },
             "serverInfo": {
                 "name": "vibe-sentinel",
@@ -488,6 +494,16 @@ mod tests {
     }
 
     #[test]
+    fn content_length_reader_accepts_case_insensitive_headers_and_extensions() {
+        let input = b"content-type: application/vscode-jsonrpc; charset=utf-8\r\ncontent-length: 17\r\n\r\n{\"jsonrpc\":\"2.0\"}";
+        let mut cursor = Cursor::new(input.to_vec());
+
+        let payload = read_content_length_message(&mut cursor).expect("read framed payload");
+
+        assert_eq!(payload, Some("{\"jsonrpc\":\"2.0\"}".to_string()));
+    }
+
+    #[test]
     fn content_length_writer_flushes_response() {
         let mut writer = FlushRecordingWriter::default();
 
@@ -526,6 +542,10 @@ mod tests {
         assert_eq!(
             responses[0]["result"]["serverInfo"]["name"],
             "vibe-sentinel"
+        );
+        assert_eq!(
+            responses[0]["result"]["capabilities"]["tools"]["listChanged"],
+            false
         );
         assert_eq!(responses[1]["id"], 2);
         assert_eq!(responses[1]["result"]["tools"][0]["name"], STATUS_TOOL_NAME);
