@@ -19,6 +19,7 @@ or is not included in the harness scope.
 | Harness scope, exclusions, approvals | `docs/harness/scope.md` |
 | Initialization answers and setup history | `docs/harness/initialization.md` |
 | TDD operating model | `docs/harness/operating-model.md` |
+| Harness open questions | `docs/harness/open-questions.md` |
 | Documentation map | `docs/README.md` |
 | Product intent and users | `docs/app-specs/app-spec.md` |
 | Product specs index | `docs/app-specs/index.md` |
@@ -117,7 +118,6 @@ from the local index. They are designed to provide compact, metadata-first
 context for agents without reading whole files or exposing source text.
 
 Symdex usage guidlines are in `docs/references/symdex-mcp-tools-usage.md`.
-
 ## References
 
 Use `docs/references/` for external docs copied into the repo.

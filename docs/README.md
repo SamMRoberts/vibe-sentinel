@@ -4,7 +4,7 @@ This folder is the system of record for coding agents working on `vibe-sentinel`
 
 ## Required folders
 
-- `harness/`: scope, initialization, and the modified TDD operating model.
+- `harness/`: scope, initialization, open questions, and the modified TDD operating model.
 - `design-docs/`: decisions, design history, and core beliefs.
 - `exec-plans/`: active plans, completed plans, technical debt, and the modified TDD plan template.
 - `app-specs/`: product requirements and user-facing behavior.
