@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VibeError {
@@ -106,9 +106,53 @@ pub struct ActivePlansValidationReport {
     pub plans: Vec<PlanValidationReport>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TddGateAction {
+    StartArchitecture,
+    StartSkeletons,
+    StartMockTests,
+    StartImplementation,
+    CompletePlan,
+}
+
+impl TddGateAction {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::StartArchitecture => "start_architecture",
+            Self::StartSkeletons => "start_skeletons",
+            Self::StartMockTests => "start_mock_tests",
+            Self::StartImplementation => "start_implementation",
+            Self::CompletePlan => "complete_plan",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TddWorkflowPhase {
+    Idle,
+    PlanCreated,
+    PlanReviewed,
+    ArchitectureReviewed,
+    ImplementationReady,
+    ImplementationUnderway,
+    CompleteReady,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TddGateReport {
+    pub project_name: String,
+    pub allowed: bool,
+    pub current_phase: TddWorkflowPhase,
+    pub blocking_issues: Vec<ValidationIssue>,
+    pub warnings: Vec<ValidationIssue>,
+    pub next_allowed_actions: Vec<TddGateAction>,
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ReadinessState, StatusCheck, StatusReport};
+    use super::{ReadinessState, StatusCheck, StatusReport, TddGateAction, TddWorkflowPhase};
 
     #[test]
     fn status_report_readiness_reflects_checks() {
@@ -123,5 +167,24 @@ mod tests {
 
         assert!(report.is_ready());
         assert_eq!(report.check_count(), 1);
+    }
+
+    #[test]
+    fn tdd_gate_action_serializes_as_mcp_argument_value() {
+        let value =
+            serde_json::to_value(TddGateAction::StartImplementation).expect("serialize action");
+
+        assert_eq!(value, serde_json::json!("start_implementation"));
+        assert_eq!(
+            TddGateAction::StartImplementation.as_str(),
+            "start_implementation"
+        );
+    }
+
+    #[test]
+    fn tdd_workflow_phase_serializes_as_structured_content_value() {
+        let value = serde_json::to_value(TddWorkflowPhase::PlanReviewed).expect("serialize phase");
+
+        assert_eq!(value, serde_json::json!("plan_reviewed"));
     }
 }

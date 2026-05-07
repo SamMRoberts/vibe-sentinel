@@ -1,7 +1,7 @@
 use crate::domain::{
     ActivePlansValidationReport, PlanValidationReport, ReadinessState, StatusCheck, StatusReport,
-    ValidationCheck, ValidationEvidence, ValidationIssue, ValidationSeverity, ValidationState,
-    VibeError,
+    TddGateAction, TddGateReport, TddWorkflowPhase, ValidationCheck, ValidationEvidence,
+    ValidationIssue, ValidationSeverity, ValidationState, VibeError,
 };
 use crate::ports::WorkspaceProbe;
 
@@ -10,6 +10,10 @@ pub struct StatusService<P: WorkspaceProbe> {
 }
 
 pub struct PlanValidationService<P: WorkspaceProbe> {
+    probe: P,
+}
+
+pub struct TddGateService<P: WorkspaceProbe> {
     probe: P,
 }
 
@@ -391,7 +395,7 @@ impl<P: WorkspaceProbe> PlanValidationService<P> {
             "checked_implementation_items_require_validation_notes",
             ValidationSeverity::Error,
             "Checked implementation items include validation notes.".to_string(),
-            None,
+            Self::first_checked_implementation_evidence(document),
         )
     }
 
@@ -533,6 +537,167 @@ impl<P: WorkspaceProbe> PlanValidationService<P> {
     }
 }
 
+impl<P: WorkspaceProbe> TddGateService<P> {
+    pub fn new(probe: P) -> Self {
+        Self { probe }
+    }
+
+    pub fn evaluate(&self, next_action: TddGateAction) -> Result<TddGateReport, VibeError> {
+        let report = PlanValidationService::new(&self.probe).evaluate_active_plans()?;
+
+        Ok(Self::report_from_validation(report, next_action))
+    }
+
+    fn report_from_validation(
+        report: ActivePlansValidationReport,
+        next_action: TddGateAction,
+    ) -> TddGateReport {
+        let current_phase = Self::current_phase(&report);
+        let blocking_issues = Self::blocking_issues_for_action(&report, next_action);
+
+        TddGateReport {
+            project_name: report.project_name,
+            allowed: blocking_issues.is_empty(),
+            current_phase,
+            blocking_issues,
+            warnings: Vec::new(),
+            next_allowed_actions: Self::next_allowed_actions(current_phase),
+        }
+    }
+
+    fn current_phase(report: &ActivePlansValidationReport) -> TddWorkflowPhase {
+        if report.plans.is_empty() {
+            return TddWorkflowPhase::Idle;
+        }
+
+        if Self::has_missing_rule(report, "reviewed_plan_not_pending") {
+            return TddWorkflowPhase::PlanCreated;
+        }
+
+        if Self::has_missing_rule(report, "reviewed_architecture_not_pending") {
+            return TddWorkflowPhase::PlanReviewed;
+        }
+
+        if Self::implementation_evidence_present(report) {
+            return if report.ready {
+                TddWorkflowPhase::CompleteReady
+            } else {
+                TddWorkflowPhase::ImplementationUnderway
+            };
+        }
+
+        if report.ready {
+            TddWorkflowPhase::ImplementationReady
+        } else {
+            TddWorkflowPhase::ArchitectureReviewed
+        }
+    }
+
+    fn next_allowed_actions(phase: TddWorkflowPhase) -> Vec<TddGateAction> {
+        match phase {
+            TddWorkflowPhase::Idle => Vec::new(),
+            TddWorkflowPhase::PlanCreated => vec![TddGateAction::StartArchitecture],
+            TddWorkflowPhase::PlanReviewed => vec![TddGateAction::StartSkeletons],
+            TddWorkflowPhase::ArchitectureReviewed => vec![TddGateAction::StartMockTests],
+            TddWorkflowPhase::ImplementationReady => vec![TddGateAction::StartImplementation],
+            TddWorkflowPhase::ImplementationUnderway | TddWorkflowPhase::CompleteReady => {
+                vec![TddGateAction::CompletePlan]
+            }
+        }
+    }
+
+    fn blocking_issues_for_action(
+        report: &ActivePlansValidationReport,
+        next_action: TddGateAction,
+    ) -> Vec<ValidationIssue> {
+        if report.plans.is_empty() {
+            return vec![Self::issue(
+                "active_plan_required",
+                "An active execution plan is required before feature workflow actions.",
+            )];
+        }
+
+        match next_action {
+            TddGateAction::StartArchitecture => Vec::new(),
+            TddGateAction::StartSkeletons => {
+                Self::issues_for_rules(report, &["reviewed_plan_not_pending"])
+            }
+            TddGateAction::StartMockTests => Self::issues_for_rules(
+                report,
+                &[
+                    "reviewed_plan_not_pending",
+                    "reviewed_architecture_not_pending",
+                ],
+            ),
+            TddGateAction::StartImplementation => report
+                .plans
+                .iter()
+                .flat_map(|plan| plan.issues.clone())
+                .collect(),
+            TddGateAction::CompletePlan => {
+                let mut issues = report
+                    .plans
+                    .iter()
+                    .flat_map(|plan| plan.issues.clone())
+                    .collect::<Vec<_>>();
+                if !Self::implementation_evidence_present(report) {
+                    issues.push(Self::issue(
+                        "implementation_evidence_required",
+                        "Completing a plan requires checked implementation work with validation evidence.",
+                    ));
+                }
+                issues
+            }
+        }
+    }
+
+    fn implementation_evidence_present(report: &ActivePlansValidationReport) -> bool {
+        report.plans.iter().any(|plan| {
+            plan.checks.iter().any(|check| {
+                check.rule_id == "checked_implementation_items_require_validation_notes"
+                    && check.evidence.is_some()
+            }) || plan.issues.iter().any(|issue| {
+                matches!(
+                    issue.rule_id.as_str(),
+                    "checked_implementation_items_require_validation_notes"
+                        | "implementation_requires_skeletons"
+                        | "implementation_requires_mock_tests"
+                ) && issue.evidence.is_some()
+            })
+        })
+    }
+
+    fn has_missing_rule(report: &ActivePlansValidationReport, rule_id: &str) -> bool {
+        report.plans.iter().any(|plan| {
+            plan.checks
+                .iter()
+                .any(|check| check.rule_id == rule_id && check.state == ValidationState::Missing)
+        })
+    }
+
+    fn issues_for_rules(
+        report: &ActivePlansValidationReport,
+        rule_ids: &[&str],
+    ) -> Vec<ValidationIssue> {
+        report
+            .plans
+            .iter()
+            .flat_map(|plan| plan.issues.iter())
+            .filter(|issue| rule_ids.iter().any(|rule_id| *rule_id == issue.rule_id))
+            .cloned()
+            .collect()
+    }
+
+    fn issue(rule_id: &str, message: &str) -> ValidationIssue {
+        ValidationIssue {
+            rule_id: rule_id.to_string(),
+            severity: ValidationSeverity::Error,
+            message: message.to_string(),
+            evidence: None,
+        }
+    }
+}
+
 impl<P: WorkspaceProbe> StatusService<P> {
     pub fn new(probe: P) -> Self {
         Self { probe }
@@ -585,9 +750,9 @@ impl<P: WorkspaceProbe> StatusService<P> {
 
 #[cfg(test)]
 mod tests {
-    use super::{PlanValidationService, StatusService};
+    use super::{PlanValidationService, StatusService, TddGateService};
     use crate::adapters::test_support::FakeWorkspaceProbe;
-    use crate::domain::{ReadinessState, ValidationState};
+    use crate::domain::{ReadinessState, TddGateAction, TddWorkflowPhase, ValidationState};
 
     #[test]
     fn status_service_reports_missing_checks_by_default() {
@@ -754,6 +919,87 @@ mod tests {
             .any(|issue| issue.rule_id == "implementation_requires_validator_pass_log"));
     }
 
+    #[test]
+    fn tdd_gate_blocks_idle_workspace_actions() {
+        let service = TddGateService::new(FakeWorkspaceProbe::new());
+
+        let report = service
+            .evaluate(TddGateAction::StartArchitecture)
+            .expect("gate report");
+
+        assert!(!report.allowed);
+        assert_eq!(report.current_phase, TddWorkflowPhase::Idle);
+        assert!(report.next_allowed_actions.is_empty());
+        assert!(report
+            .blocking_issues
+            .iter()
+            .any(|issue| issue.rule_id == "active_plan_required"));
+    }
+
+    #[test]
+    fn tdd_gate_allows_architecture_when_plan_exists() {
+        let service = TddGateService::new(
+            FakeWorkspaceProbe::new()
+                .with_active_plan_file("docs/exec-plans/active/plan.md", plan_created_text()),
+        );
+
+        let report = service
+            .evaluate(TddGateAction::StartArchitecture)
+            .expect("gate report");
+
+        assert!(report.allowed);
+        assert_eq!(report.current_phase, TddWorkflowPhase::PlanCreated);
+        assert_eq!(
+            report.next_allowed_actions,
+            vec![TddGateAction::StartArchitecture]
+        );
+    }
+
+    #[test]
+    fn tdd_gate_blocks_implementation_until_validation_ready() {
+        let text = ready_plan_text().replace(
+            "- [x] `domain` skeleton added.",
+            "- [ ] `domain` skeleton added.",
+        );
+        let service = TddGateService::new(
+            FakeWorkspaceProbe::new()
+                .with_active_plan_file("docs/exec-plans/active/not-ready.md", &text),
+        );
+
+        let report = service
+            .evaluate(TddGateAction::StartImplementation)
+            .expect("gate report");
+
+        assert!(!report.allowed);
+        assert_eq!(
+            report.current_phase,
+            TddWorkflowPhase::ImplementationUnderway
+        );
+        assert!(report
+            .blocking_issues
+            .iter()
+            .any(|issue| issue.rule_id == "implementation_requires_skeletons"));
+    }
+
+    #[test]
+    fn tdd_gate_allows_implementation_when_active_plan_validation_is_ready() {
+        let service = TddGateService::new(FakeWorkspaceProbe::new().with_active_plan_file(
+            "docs/exec-plans/active/implementation-ready.md",
+            implementation_ready_plan_text(),
+        ));
+
+        let report = service
+            .evaluate(TddGateAction::StartImplementation)
+            .expect("gate report");
+
+        assert!(report.allowed);
+        assert_eq!(report.current_phase, TddWorkflowPhase::ImplementationReady);
+        assert_eq!(
+            report.next_allowed_actions,
+            vec![TddGateAction::StartImplementation]
+        );
+    }
+
     fn ready_plan_text() -> &'static str {
         r#"# Execution Plan: Example
 
@@ -789,6 +1035,70 @@ mod tests {
 ### Review Notes
 
 - Diff review: pending.
+"#
+    }
+
+    fn plan_created_text() -> &'static str {
+        r#"# Execution Plan: Created
+
+## Modified TDD artifacts
+
+### Reviewed Plan
+
+- Plan review status: pending
+
+### Reviewed Architecture
+
+- Architecture review status: pending
+
+### Skeleton Checklist
+
+- [ ] `domain` skeleton added.
+
+### Mock Test Checklist
+
+- [ ] core test covers skeleton behavior.
+
+### Implementation Checklist
+
+- [ ] Fill `domain` behavior.
+- Validation after this unit: pending
+
+### Validation Log
+
+- pending
+"#
+    }
+
+    fn implementation_ready_plan_text() -> &'static str {
+        r#"# Execution Plan: Implementation Ready
+
+## Modified TDD artifacts
+
+### Reviewed Plan
+
+- Plan review status: reviewed
+
+### Reviewed Architecture
+
+- Architecture review status: reviewed
+
+### Skeleton Checklist
+
+- [x] `domain` skeleton added.
+
+### Mock Test Checklist
+
+- [x] core test covers skeleton behavior.
+
+### Implementation Checklist
+
+- [ ] Fill `domain` behavior.
+- Validation after this unit: pending
+
+### Validation Log
+
+- 2026-05-07: `python3 scripts/validate_tdd_workflow.py docs/exec-plans/active/example.md` -> passed.
 "#
     }
 }

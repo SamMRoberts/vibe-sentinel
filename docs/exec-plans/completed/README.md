@@ -15,3 +15,4 @@ Keep completed plans for historical context and future agent runs.
 - `mcp-status-tool.md`: local read-only MCP status tool over the existing readiness report.
 - `mcp-active-plan-validation.md`: local read-only MCP active-plan validation tool for implementation readiness.
 - `mcp-tools-call-arguments.md`: MCP `tools/call` no-argument validation hardening for shipped local tools.
+- `mcp-tdd-gate.md`: local read-only MCP TDD gate tool for proposed workflow transitions.

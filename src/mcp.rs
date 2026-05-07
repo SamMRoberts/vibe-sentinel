@@ -5,12 +5,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::adapters::fs::FsWorkspaceProbe;
-use crate::core::{PlanValidationService, StatusService};
-use crate::domain::{PlanValidationReport, StatusCheck, StatusReport, VibeError};
+use crate::core::{PlanValidationService, StatusService, TddGateService};
+use crate::domain::{
+    PlanValidationReport, StatusCheck, StatusReport, TddGateAction, TddGateReport,
+    TddWorkflowPhase, ValidationIssue, VibeError,
+};
 use crate::ports::WorkspaceProbe;
 
 pub const STATUS_TOOL_NAME: &str = "vibe_sentinel_status";
 pub const ACTIVE_PLAN_VALIDATION_TOOL_NAME: &str = "vibe_sentinel_validate_active_plans";
+pub const TDD_GATE_TOOL_NAME: &str = "vibe_sentinel_tdd_gate";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct McpServerConfig {
@@ -30,6 +34,7 @@ pub struct McpToolDescriptor {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum McpToolInputSchema {
     NoArguments,
+    TddGate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,6 +46,7 @@ pub enum McpStatusRequest {
 enum McpTool {
     Status,
     ActivePlanValidation,
+    TddGate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -55,6 +61,16 @@ pub struct McpActivePlanValidationResponse {
     pub project_name: String,
     pub ready: bool,
     pub plans: Vec<PlanValidationReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct McpTddGateResponse {
+    pub project_name: String,
+    pub allowed: bool,
+    pub current_phase: TddWorkflowPhase,
+    pub blocking_issues: Vec<ValidationIssue>,
+    pub warnings: Vec<ValidationIssue>,
+    pub next_allowed_actions: Vec<TddGateAction>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -106,6 +122,18 @@ struct ToolCallParams {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NoArguments {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TddGateArguments {
+    next_action: TddGateAction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum McpToolArguments {
+    None,
+    TddGate(TddGateArguments),
+}
 
 type ToolCallValidationResult<T> = Result<T, Box<JsonRpcResponse>>;
 
@@ -185,10 +213,23 @@ pub fn active_plan_validation_tool_descriptor() -> McpToolDescriptor {
     }
 }
 
+pub fn tdd_gate_tool_descriptor() -> McpToolDescriptor {
+    McpToolDescriptor {
+        name: TDD_GATE_TOOL_NAME.to_string(),
+        description: "Check whether a proposed modified-TDD workflow transition is allowed"
+            .to_string(),
+        read_only: true,
+        idempotent: true,
+        local_only: true,
+        input_schema: McpToolInputSchema::TddGate,
+    }
+}
+
 fn tool_descriptors() -> Vec<McpToolDescriptor> {
     vec![
         status_tool_descriptor(),
         active_plan_validation_tool_descriptor(),
+        tdd_gate_tool_descriptor(),
     ]
 }
 
@@ -222,6 +263,26 @@ pub fn active_plan_validation_response_from_report(
         project_name: report.project_name,
         ready: report.ready,
         plans: report.plans,
+    }
+}
+
+pub fn evaluate_tdd_gate_tool<P: WorkspaceProbe>(
+    probe: P,
+    next_action: TddGateAction,
+) -> Result<McpTddGateResponse, VibeError> {
+    TddGateService::new(probe)
+        .evaluate(next_action)
+        .map(tdd_gate_response_from_report)
+}
+
+pub fn tdd_gate_response_from_report(report: TddGateReport) -> McpTddGateResponse {
+    McpTddGateResponse {
+        project_name: report.project_name,
+        allowed: report.allowed,
+        current_phase: report.current_phase,
+        blocking_issues: report.blocking_issues,
+        warnings: report.warnings,
+        next_allowed_actions: report.next_allowed_actions,
     }
 }
 
@@ -494,6 +555,23 @@ fn input_schema_json(schema: McpToolInputSchema) -> Value {
             "properties": {},
             "additionalProperties": false
         }),
+        McpToolInputSchema::TddGate => serde_json::json!({
+            "type": "object",
+            "properties": {
+                "next_action": {
+                    "type": "string",
+                    "enum": [
+                        TddGateAction::StartArchitecture.as_str(),
+                        TddGateAction::StartSkeletons.as_str(),
+                        TddGateAction::StartMockTests.as_str(),
+                        TddGateAction::StartImplementation.as_str(),
+                        TddGateAction::CompletePlan.as_str()
+                    ]
+                }
+            },
+            "required": ["next_action"],
+            "additionalProperties": false
+        }),
     }
 }
 
@@ -552,15 +630,45 @@ fn parse_no_arguments(
     Ok(NoArguments::default())
 }
 
+fn parse_tdd_gate_arguments(
+    id: Option<Value>,
+    tool_name: &str,
+    arguments: Option<Value>,
+) -> ToolCallValidationResult<TddGateArguments> {
+    let Some(arguments) = arguments else {
+        return Err(Box::new(invalid_params(
+            id,
+            format!("MCP tool `{tool_name}` requires object arguments"),
+        )));
+    };
+
+    if !arguments.is_object() {
+        return Err(Box::new(invalid_params(
+            id,
+            format!("MCP tool `{tool_name}` requires object arguments"),
+        )));
+    }
+
+    serde_json::from_value(arguments).map_err(|error| {
+        Box::new(invalid_params(
+            id,
+            format!("MCP tool `{tool_name}` received invalid arguments: {error}"),
+        ))
+    })
+}
+
 fn validate_tool_call_arguments(
     id: Option<Value>,
     tool: McpTool,
     tool_name: &str,
     arguments: Option<Value>,
-) -> ToolCallValidationResult<()> {
+) -> ToolCallValidationResult<McpToolArguments> {
     match tool {
         McpTool::Status | McpTool::ActivePlanValidation => {
-            parse_no_arguments(id, tool_name, arguments).map(|_| ())
+            parse_no_arguments(id, tool_name, arguments).map(|_| McpToolArguments::None)
+        }
+        McpTool::TddGate => {
+            parse_tdd_gate_arguments(id, tool_name, arguments).map(McpToolArguments::TddGate)
         }
     }
 }
@@ -569,6 +677,7 @@ fn tool_from_name(name: &str) -> Option<McpTool> {
     match name {
         STATUS_TOOL_NAME => Some(McpTool::Status),
         ACTIVE_PLAN_VALIDATION_TOOL_NAME => Some(McpTool::ActivePlanValidation),
+        TDD_GATE_TOOL_NAME => Some(McpTool::TddGate),
         _ => None,
     }
 }
@@ -592,15 +701,21 @@ fn handle_tools_call(
         ));
     };
 
-    if let Err(response) =
-        validate_tool_call_arguments(id.clone(), tool, &params.name, params.arguments)
-    {
-        return Ok(*response);
-    }
+    let tool_arguments =
+        match validate_tool_call_arguments(id.clone(), tool, &params.name, params.arguments) {
+            Ok(arguments) => arguments,
+            Err(response) => return Ok(*response),
+        };
 
-    let result = match tool {
-        McpTool::Status => handle_status_tool_call(config)?,
-        McpTool::ActivePlanValidation => handle_active_plan_validation_tool_call(config)?,
+    let result = match (tool, tool_arguments) {
+        (McpTool::Status, McpToolArguments::None) => handle_status_tool_call(config)?,
+        (McpTool::ActivePlanValidation, McpToolArguments::None) => {
+            handle_active_plan_validation_tool_call(config)?
+        }
+        (McpTool::TddGate, McpToolArguments::TddGate(arguments)) => {
+            handle_tdd_gate_tool_call(config, arguments.next_action)?
+        }
+        _ => unreachable!("validated MCP tool arguments must match tool kind"),
     };
 
     Ok(json_rpc_success(id, serialize_protocol_result(result)?))
@@ -668,6 +783,40 @@ fn handle_active_plan_validation_tool_call(config: &McpServerConfig) -> Result<V
     )
 }
 
+fn handle_tdd_gate_tool_call(
+    config: &McpServerConfig,
+    next_action: TddGateAction,
+) -> Result<Value, VibeError> {
+    Ok(
+        match evaluate_tdd_gate_tool(FsWorkspaceProbe::new(config.root.clone()), next_action) {
+            Ok(response) => serde_json::json!({
+                "content": [{
+                    "type": "text",
+                    "text": serde_json::to_string(&response).map_err(|error| {
+                        VibeError::StatusEvaluationFailed(format!(
+                            "could not serialize MCP TDD gate content: {error}"
+                        ))
+                    })?
+                }],
+                "structuredContent": response,
+                "isError": false
+            }),
+            Err(error) => {
+                let response = map_error(error);
+                let message = response.message.clone();
+                serde_json::json!({
+                    "content": [{
+                        "type": "text",
+                        "text": message
+                    }],
+                    "structuredContent": response,
+                    "isError": true
+                })
+            }
+        },
+    )
+}
+
 fn json_rpc_success(id: Option<Value>, result: Value) -> JsonRpcResponse {
     JsonRpcResponse {
         jsonrpc: "2.0".to_string(),
@@ -713,8 +862,8 @@ mod tests {
     use super::{
         active_plan_validation_tool_descriptor, evaluate_status_tool, map_error,
         read_content_length_message, run_stdio_session, status_tool_descriptor,
-        write_content_length_message, McpErrorCode, McpServerConfig,
-        ACTIVE_PLAN_VALIDATION_TOOL_NAME, STATUS_TOOL_NAME,
+        tdd_gate_tool_descriptor, write_content_length_message, McpErrorCode, McpServerConfig,
+        ACTIVE_PLAN_VALIDATION_TOOL_NAME, STATUS_TOOL_NAME, TDD_GATE_TOOL_NAME,
     };
     use crate::adapters::test_support::FakeWorkspaceProbe;
     use crate::domain::ReadinessState;
@@ -745,6 +894,17 @@ mod tests {
         assert!(descriptor.idempotent);
         assert!(descriptor.local_only);
         assert!(descriptor.description.contains("execution plans"));
+    }
+
+    #[test]
+    fn tdd_gate_tool_descriptor_is_read_only_idempotent_and_local() {
+        let descriptor = tdd_gate_tool_descriptor();
+
+        assert_eq!(descriptor.name, TDD_GATE_TOOL_NAME);
+        assert!(descriptor.read_only);
+        assert!(descriptor.idempotent);
+        assert!(descriptor.local_only);
+        assert!(descriptor.description.contains("modified-TDD"));
     }
 
     #[test]
@@ -878,6 +1038,10 @@ mod tests {
             ACTIVE_PLAN_VALIDATION_TOOL_NAME
         );
         assert_eq!(
+            responses[1]["result"]["tools"][2]["name"],
+            TDD_GATE_TOOL_NAME
+        );
+        assert_eq!(
             responses[1]["result"]["tools"][0]["annotations"]["readOnlyHint"],
             true
         );
@@ -900,7 +1064,7 @@ mod tests {
 
         let responses = decode_framed_responses(&output);
         let tools = responses[0]["result"]["tools"].as_array().expect("tools");
-        for tool in tools {
+        for tool in tools.iter().take(2) {
             assert_eq!(tool["inputSchema"]["type"], "object");
             assert_eq!(
                 tool["inputSchema"]["properties"]
@@ -911,6 +1075,14 @@ mod tests {
             );
             assert_eq!(tool["inputSchema"]["additionalProperties"], false);
         }
+        let tdd_gate_schema = &tools[2]["inputSchema"];
+        assert_eq!(tdd_gate_schema["type"], "object");
+        assert_eq!(tdd_gate_schema["required"][0], "next_action");
+        assert_eq!(
+            tdd_gate_schema["properties"]["next_action"]["enum"][0],
+            "start_architecture"
+        );
+        assert_eq!(tdd_gate_schema["additionalProperties"], false);
     }
 
     #[test]
@@ -1073,6 +1245,33 @@ mod tests {
     }
 
     #[test]
+    fn session_handles_tdd_gate_tool_call_request() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"gate-1","method":"tools/call","params":{"name":"vibe_sentinel_tdd_gate","arguments":{"next_action":"complete_plan"}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        let structured = &responses[0]["result"]["structuredContent"];
+        assert_eq!(responses[0]["id"], "gate-1");
+        assert_eq!(responses[0]["result"]["isError"], false);
+        assert_eq!(structured["project_name"], "vibe-sentinel");
+        assert_eq!(structured["allowed"], true);
+        assert_eq!(structured["current_phase"], "complete_ready");
+        assert_eq!(structured["next_allowed_actions"][0], "complete_plan");
+    }
+
+    #[test]
     fn session_rejects_status_tool_call_with_unexpected_arguments() {
         let workspace = TestWorkspace::new();
         let input = framed_messages(&[
@@ -1122,6 +1321,62 @@ mod tests {
             .as_str()
             .expect("message")
             .contains("does not accept arguments"));
+    }
+
+    #[test]
+    fn session_rejects_tdd_gate_tool_call_with_invalid_next_action_without_aborting() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":18,"method":"tools/call","params":{"name":"vibe_sentinel_tdd_gate","arguments":{"next_action":"skip_to_implementation"}}}"#,
+            r#"{"jsonrpc":"2.0","id":19,"method":"tools/call","params":{"name":"vibe_sentinel_tdd_gate","arguments":{"next_action":"complete_plan"}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses.len(), 2);
+        assert_eq!(responses[0]["id"], 18);
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert!(responses[0]["error"]["message"]
+            .as_str()
+            .expect("message")
+            .contains("invalid arguments"));
+        assert_eq!(responses[1]["id"], 19);
+        assert_eq!(responses[1]["result"]["isError"], false);
+    }
+
+    #[test]
+    fn session_rejects_tdd_gate_tool_call_without_arguments() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"vibe_sentinel_tdd_gate"}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], 20);
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert!(responses[0]["error"]["message"]
+            .as_str()
+            .expect("message")
+            .contains("requires object arguments"));
     }
 
     #[test]
@@ -1247,6 +1502,32 @@ mod tests {
 
         let responses = decode_framed_responses(&output);
         assert_eq!(responses[0]["id"], 9);
+        assert_eq!(responses[0]["result"]["isError"], true);
+        assert_eq!(
+            responses[0]["result"]["structuredContent"]["code"],
+            "workspace_unreadable"
+        );
+    }
+
+    #[test]
+    fn session_maps_tdd_gate_workspace_errors_to_tool_error_payload() {
+        let workspace = TestWorkspace::new_with_unreadable_active_plan();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"vibe_sentinel_tdd_gate","arguments":{"next_action":"start_implementation"}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], 21);
         assert_eq!(responses[0]["result"]["isError"], true);
         assert_eq!(
             responses[0]["result"]["structuredContent"]["code"],
