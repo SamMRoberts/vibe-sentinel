@@ -235,7 +235,7 @@ fn read_content_length_message<R: BufRead>(reader: &mut R) -> Result<Option<Stri
 fn write_content_length_message<W: Write>(writer: &mut W, payload: &str) -> Result<(), VibeError> {
     write!(
         writer,
-        "Content-Length: {}\r\n\r\n{}",
+        "Content-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
         payload.len(),
         payload
     )
@@ -538,7 +538,7 @@ mod tests {
         assert!(writer.flushed);
         assert_eq!(
             String::from_utf8(writer.written).expect("utf8 payload"),
-            "Content-Length: 17\r\n\r\n{\"jsonrpc\":\"2.0\"}"
+            "Content-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: 17\r\n\r\n{\"jsonrpc\":\"2.0\"}"
         );
     }
 
