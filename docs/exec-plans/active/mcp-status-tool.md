@@ -326,6 +326,10 @@ module tests/mcp_status fixtures or src/mcp.rs tests
 - 2026-05-07: VS Code diagnostics -> no errors found.
 - 2026-05-07: Symdex watcher status -> `quality_ready` after final docs and runtime review.
 - 2026-05-07: After JSON-RPC response serialization polish, `cargo fmt`, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all`, and `cargo build --all-targets` all passed again.
+- 2026-05-07: MCP stdio startup bugfix: `cargo test content_length_writer_flushes_response` failed before the fix because framed responses were not flushed after writing; passed after `write_content_length_message` began flushing the writer.
+- 2026-05-07: `cargo test mcp::tests` passed with 11 MCP tests after the stdio flush regression test was added.
+- 2026-05-07: Subprocess initialize smoke test against `target/debug/vibe-sentinel mcp serve` returned `{"id": 1, "server": "vibe-sentinel"}` within the timeout while stdin stayed open.
+- 2026-05-07: Final stdio flush bugfix validation passed: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all`, `cargo build --all-targets`, `python3 scripts/validate_tdd_workflow.py docs/exec-plans/active/mcp-status-tool.md`, `python3 scripts/validate_tdd_workflow.py`, and `git --no-pager diff --check`.
 
 ### Review Notes
 

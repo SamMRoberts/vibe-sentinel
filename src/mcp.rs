@@ -225,6 +225,9 @@ fn write_content_length_message<W: Write>(writer: &mut W, payload: &str) -> Resu
     )
     .map_err(|error| {
         VibeError::StatusEvaluationFailed(format!("could not write MCP message: {error}"))
+    })?;
+    writer.flush().map_err(|error| {
+        VibeError::StatusEvaluationFailed(format!("could not flush MCP message: {error}"))
     })
 }
 
@@ -473,6 +476,20 @@ mod tests {
     }
 
     #[test]
+    fn content_length_writer_flushes_response() {
+        let mut writer = FlushRecordingWriter::default();
+
+        write_content_length_message(&mut writer, "{\"jsonrpc\":\"2.0\"}")
+            .expect("write framed payload");
+
+        assert!(writer.flushed);
+        assert_eq!(
+            String::from_utf8(writer.written).expect("utf8 payload"),
+            "Content-Length: 17\r\n\r\n{\"jsonrpc\":\"2.0\"}"
+        );
+    }
+
+    #[test]
     fn session_handles_initialize_and_tools_list_requests() {
         let workspace = TestWorkspace::new();
         let input = framed_messages(&[
@@ -606,6 +623,24 @@ mod tests {
             responses.push(serde_json::from_str(&payload).expect("json response"));
         }
         responses
+    }
+
+    #[derive(Default)]
+    struct FlushRecordingWriter {
+        written: Vec<u8>,
+        flushed: bool,
+    }
+
+    impl Write for FlushRecordingWriter {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            self.written.extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.flushed = true;
+            Ok(())
+        }
     }
 
     struct TestWorkspace {
