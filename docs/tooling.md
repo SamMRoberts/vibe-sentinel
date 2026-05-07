@@ -12,8 +12,9 @@
 ## Local MCP command
 
 - `cargo run -- mcp serve`: start the local stdio MCP server.
-- `cargo test mcp::tests`: run MCP Content-Length, JSON-RPC, tool discovery,
-  status call, and error-payload fixture coverage.
+- `cargo test mcp::tests`: run MCP newline-delimited stdio, legacy
+  Content-Length, JSON-RPC, tool discovery, status call, and error-payload
+  fixture coverage.
 
 ## Validation commands
 

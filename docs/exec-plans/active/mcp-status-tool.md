@@ -336,6 +336,10 @@ module tests/mcp_status fixtures or src/mcp.rs tests
 - 2026-05-07: `cargo test initialize_echoes_client_protocol_version` failed before the protocol negotiation fix because initialize returned `2024-11-05`; passed after initialize began echoing the client-requested `protocolVersion` with a `2025-06-18` fallback.
 - 2026-05-07: Exact configured subprocess smoke test against `cargo run -- mcp serve` with a VS Code-style initialize payload returned `{"id": 0, "protocolVersion": "2025-06-18", "server": "vibe-sentinel"}` within the timeout.
 - 2026-05-07: Protocol negotiation follow-up validation passed: `cargo fmt`, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all`, `cargo build --all-targets`, `python3 scripts/validate_tdd_workflow.py docs/exec-plans/active/mcp-status-tool.md`, `python3 scripts/validate_tdd_workflow.py`, and `git --no-pager diff --check`.
+- 2026-05-07: VS Code MCP stdio follow-up: user logs showed VS Code 1.119.0 sending a newline-delimited JSON-RPC `initialize` request with protocol version `2025-11-25`; the existing runtime waited for Content-Length headers and therefore never read the request.
+- 2026-05-07: `cargo test session_handles_vscode_newline_initialize_request` passed after adding newline-delimited stdio request/response support while preserving legacy Content-Length fixtures.
+- 2026-05-07: Newline stdio smoke test against `cargo run --quiet -- mcp serve` with the VS Code 1.119.0 initialize payload returned a newline-delimited response with protocol version `2025-11-25`.
+- 2026-05-07: Newline stdio validation passed: `cargo fmt`, `cargo fmt --check`, `cargo test mcp::tests`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all`, `cargo build --all-targets`, `python3 scripts/validate_tdd_workflow.py docs/exec-plans/active/mcp-status-tool.md`, `python3 scripts/validate_tdd_workflow.py`, and `git --no-pager diff --check`.
 
 ### Review Notes
 

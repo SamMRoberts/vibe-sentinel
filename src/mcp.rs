@@ -77,6 +77,18 @@ struct JsonRpcError {
     data: Option<Value>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StdioFraming {
+    ContentLength,
+    Newline,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StdioMessage {
+    payload: String,
+    framing: StdioFraming,
+}
+
 struct StdioServer<R: BufRead, W: Write> {
     config: McpServerConfig,
     reader: R,
@@ -93,8 +105,8 @@ impl<R: BufRead, W: Write> StdioServer<R, W> {
     }
 
     fn run(&mut self) -> Result<(), VibeError> {
-        while let Some(payload) = read_content_length_message(&mut self.reader)? {
-            let response = match serde_json::from_str::<JsonRpcRequest>(&payload) {
+        while let Some(message) = read_stdio_message(&mut self.reader)? {
+            let response = match serde_json::from_str::<JsonRpcRequest>(&message.payload) {
                 Ok(request) => handle_json_rpc_request(&self.config, request)?,
                 Err(error) => Some(json_rpc_error(
                     None,
@@ -110,7 +122,7 @@ impl<R: BufRead, W: Write> StdioServer<R, W> {
                         "could not serialize MCP response: {error}"
                     ))
                 })?;
-                write_content_length_message(&mut self.writer, &payload)?;
+                write_stdio_message(&mut self.writer, &payload, message.framing)?;
             }
         }
 
@@ -170,9 +182,55 @@ fn run_stdio_session<R: BufRead, W: Write>(
     StdioServer::new(config, reader, writer).run()
 }
 
+fn read_stdio_message<R: BufRead>(reader: &mut R) -> Result<Option<StdioMessage>, VibeError> {
+    let mut first_line = String::new();
+    let bytes_read = reader.read_line(&mut first_line).map_err(|error| {
+        VibeError::StatusEvaluationFailed(format!("could not read MCP message: {error}"))
+    })?;
+    if bytes_read == 0 {
+        return Ok(None);
+    }
+
+    let first = first_line.trim_end_matches(['\r', '\n']);
+    if first.is_empty() {
+        return Err(VibeError::InvalidArguments(
+            "empty MCP stdio message".to_string(),
+        ));
+    }
+
+    if is_content_header(first) {
+        let payload = read_content_length_message_after_header(reader, first)?;
+        return Ok(Some(StdioMessage {
+            payload,
+            framing: StdioFraming::ContentLength,
+        }));
+    }
+
+    Ok(Some(StdioMessage {
+        payload: first.to_string(),
+        framing: StdioFraming::Newline,
+    }))
+}
+
+#[cfg(test)]
 fn read_content_length_message<R: BufRead>(reader: &mut R) -> Result<Option<String>, VibeError> {
-    let mut content_length = None;
-    let mut saw_header = false;
+    let mut first_line = String::new();
+    let bytes_read = reader.read_line(&mut first_line).map_err(|error| {
+        VibeError::StatusEvaluationFailed(format!("could not read MCP header: {error}"))
+    })?;
+    if bytes_read == 0 {
+        return Ok(None);
+    }
+
+    let first = first_line.trim_end_matches(['\r', '\n']);
+    read_content_length_message_after_header(reader, first).map(Some)
+}
+
+fn read_content_length_message_after_header<R: BufRead>(
+    reader: &mut R,
+    first_header: &str,
+) -> Result<String, VibeError> {
+    let mut content_length = content_length_from_header(first_header)?;
 
     loop {
         let mut line = String::new();
@@ -180,30 +238,18 @@ fn read_content_length_message<R: BufRead>(reader: &mut R) -> Result<Option<Stri
             VibeError::StatusEvaluationFailed(format!("could not read MCP header: {error}"))
         })?;
         if bytes_read == 0 {
-            return if saw_header {
-                Err(VibeError::InvalidArguments(
-                    "unexpected end of MCP headers".to_string(),
-                ))
-            } else {
-                Ok(None)
-            };
+            return Err(VibeError::InvalidArguments(
+                "unexpected end of MCP headers".to_string(),
+            ));
         }
 
-        saw_header = true;
         let header = line.trim_end_matches(['\r', '\n']);
         if header.is_empty() {
             break;
         }
 
-        if let Some((name, value)) = header.split_once(':') {
-            if name.eq_ignore_ascii_case("Content-Length") {
-                let length = value.trim().parse::<usize>().map_err(|error| {
-                    VibeError::InvalidArguments(format!(
-                        "invalid MCP Content-Length header: {error}"
-                    ))
-                })?;
-                content_length = Some(length);
-            }
+        if let Some(length) = content_length_from_header(header)? {
+            content_length = Some(length);
         }
     }
 
@@ -227,9 +273,41 @@ fn read_content_length_message<R: BufRead>(reader: &mut R) -> Result<Option<Stri
         reader.consume(chunk_len);
     }
 
-    String::from_utf8(body).map(Some).map_err(|error| {
+    String::from_utf8(body).map_err(|error| {
         VibeError::InvalidArguments(format!("MCP message body is not UTF-8: {error}"))
     })
+}
+
+fn is_content_header(line: &str) -> bool {
+    line.split_once(':')
+        .map(|(name, _)| {
+            name.eq_ignore_ascii_case("Content-Length") || name.eq_ignore_ascii_case("Content-Type")
+        })
+        .unwrap_or(false)
+}
+
+fn content_length_from_header(header: &str) -> Result<Option<usize>, VibeError> {
+    if let Some((name, value)) = header.split_once(':') {
+        if name.eq_ignore_ascii_case("Content-Length") {
+            let length = value.trim().parse::<usize>().map_err(|error| {
+                VibeError::InvalidArguments(format!("invalid MCP Content-Length header: {error}"))
+            })?;
+            return Ok(Some(length));
+        }
+    }
+
+    Ok(None)
+}
+
+fn write_stdio_message<W: Write>(
+    writer: &mut W,
+    payload: &str,
+    framing: StdioFraming,
+) -> Result<(), VibeError> {
+    match framing {
+        StdioFraming::ContentLength => write_content_length_message(writer, payload),
+        StdioFraming::Newline => write_newline_message(writer, payload),
+    }
 }
 
 fn write_content_length_message<W: Write>(writer: &mut W, payload: &str) -> Result<(), VibeError> {
@@ -240,6 +318,15 @@ fn write_content_length_message<W: Write>(writer: &mut W, payload: &str) -> Resu
         payload
     )
     .map_err(|error| {
+        VibeError::StatusEvaluationFailed(format!("could not write MCP message: {error}"))
+    })?;
+    writer.flush().map_err(|error| {
+        VibeError::StatusEvaluationFailed(format!("could not flush MCP message: {error}"))
+    })
+}
+
+fn write_newline_message<W: Write>(writer: &mut W, payload: &str) -> Result<(), VibeError> {
+    writeln!(writer, "{payload}").map_err(|error| {
         VibeError::StatusEvaluationFailed(format!("could not write MCP message: {error}"))
     })?;
     writer.flush().map_err(|error| {
@@ -607,6 +694,36 @@ mod tests {
     }
 
     #[test]
+    fn session_handles_vscode_newline_initialize_request() {
+        let workspace = TestWorkspace::new();
+        let input = newline_messages(&[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{"roots":{"listChanged":true},"sampling":{},"elicitation":{"form":{},"url":{}},"tasks":{"list":{},"cancel":{},"requests":{"sampling":{"createMessage":{}},"elicitation":{"create":{}}}},"extensions":{"io.modelcontextprotocol/ui":{"mimeTypes":["text/html;profile=mcp-app"]}}},"clientInfo":{"name":"Visual Studio Code","version":"1.119.0"}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let output_text = String::from_utf8(output.clone()).expect("utf8 output");
+        assert!(!output_text.contains("Content-Length"));
+
+        let responses = decode_newline_responses(&output);
+        assert_eq!(responses.len(), 1);
+        assert_eq!(responses[0]["id"], 1);
+        assert_eq!(responses[0]["result"]["protocolVersion"], "2025-11-25");
+        assert_eq!(
+            responses[0]["result"]["serverInfo"]["name"],
+            "vibe-sentinel"
+        );
+    }
+
+    #[test]
     fn session_handles_status_tool_call_request() {
         let workspace = TestWorkspace::new();
         let input = framed_messages(&[
@@ -698,6 +815,14 @@ mod tests {
         output
     }
 
+    fn newline_messages(messages: &[&str]) -> Vec<u8> {
+        let mut output = Vec::new();
+        for message in messages {
+            writeln!(output, "{message}").expect("newline message");
+        }
+        output
+    }
+
     fn decode_framed_responses(output: &[u8]) -> Vec<serde_json::Value> {
         let mut cursor = Cursor::new(output.to_vec());
         let mut responses = Vec::new();
@@ -706,6 +831,14 @@ mod tests {
             responses.push(serde_json::from_str(&payload).expect("json response"));
         }
         responses
+    }
+
+    fn decode_newline_responses(output: &[u8]) -> Vec<serde_json::Value> {
+        String::from_utf8(output.to_vec())
+            .expect("utf8 output")
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("json response"))
+            .collect()
     }
 
     #[derive(Default)]
