@@ -5,11 +5,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::adapters::fs::FsWorkspaceProbe;
-use crate::core::StatusService;
-use crate::domain::{StatusCheck, StatusReport, VibeError};
+use crate::core::{PlanValidationService, StatusService};
+use crate::domain::{PlanValidationReport, StatusCheck, StatusReport, VibeError};
 use crate::ports::WorkspaceProbe;
 
 pub const STATUS_TOOL_NAME: &str = "vibe_sentinel_status";
+pub const ACTIVE_PLAN_VALIDATION_TOOL_NAME: &str = "vibe_sentinel_validate_active_plans";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct McpServerConfig {
@@ -30,11 +31,24 @@ pub enum McpStatusRequest {
     Status,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum McpTool {
+    Status,
+    ActivePlanValidation,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct McpStatusResponse {
     pub project_name: String,
     pub ready: bool,
     pub checks: Vec<StatusCheck>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct McpActivePlanValidationResponse {
+    pub project_name: String,
+    pub ready: bool,
+    pub plans: Vec<PlanValidationReport>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -140,6 +154,24 @@ pub fn status_tool_descriptor() -> McpToolDescriptor {
     }
 }
 
+pub fn active_plan_validation_tool_descriptor() -> McpToolDescriptor {
+    McpToolDescriptor {
+        name: ACTIVE_PLAN_VALIDATION_TOOL_NAME.to_string(),
+        description: "Validate active vibe-sentinel execution plans for implementation readiness"
+            .to_string(),
+        read_only: true,
+        idempotent: true,
+        local_only: true,
+    }
+}
+
+fn tool_descriptors() -> Vec<McpToolDescriptor> {
+    vec![
+        status_tool_descriptor(),
+        active_plan_validation_tool_descriptor(),
+    ]
+}
+
 pub fn evaluate_status_tool<P: WorkspaceProbe>(probe: P) -> Result<McpStatusResponse, VibeError> {
     StatusService::new(probe)
         .evaluate()
@@ -152,6 +184,24 @@ pub fn response_from_report(report: StatusReport) -> McpStatusResponse {
         project_name: report.project_name,
         ready,
         checks: report.checks,
+    }
+}
+
+pub fn evaluate_active_plan_validation_tool<P: WorkspaceProbe>(
+    probe: P,
+) -> Result<McpActivePlanValidationResponse, VibeError> {
+    PlanValidationService::new(probe)
+        .evaluate_active_plans()
+        .map(active_plan_validation_response_from_report)
+}
+
+pub fn active_plan_validation_response_from_report(
+    report: crate::domain::ActivePlansValidationReport,
+) -> McpActivePlanValidationResponse {
+    McpActivePlanValidationResponse {
+        project_name: report.project_name,
+        ready: report.ready,
+        plans: report.plans,
     }
 }
 
@@ -392,11 +442,10 @@ fn initialize_protocol_version(params: Option<&Value>) -> String {
 }
 
 fn handle_tools_list(id: Option<Value>) -> Result<JsonRpcResponse, VibeError> {
-    let descriptor = status_tool_descriptor();
-    Ok(json_rpc_success(
-        id,
-        serialize_protocol_result(serde_json::json!({
-            "tools": [{
+    let tools = tool_descriptors()
+        .into_iter()
+        .map(|descriptor| {
+            serde_json::json!({
                 "name": descriptor.name,
                 "description": descriptor.description,
                 "inputSchema": {
@@ -410,9 +459,24 @@ fn handle_tools_list(id: Option<Value>) -> Result<JsonRpcResponse, VibeError> {
                     "destructiveHint": false,
                     "openWorldHint": !descriptor.local_only
                 }
-            }]
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Ok(json_rpc_success(
+        id,
+        serialize_protocol_result(serde_json::json!({
+            "tools": tools
         }))?,
     ))
+}
+
+fn tool_from_name(name: &str) -> Option<McpTool> {
+    match name {
+        STATUS_TOOL_NAME => Some(McpTool::Status),
+        ACTIVE_PLAN_VALIDATION_TOOL_NAME => Some(McpTool::ActivePlanValidation),
+        _ => None,
+    }
 }
 
 fn handle_tools_call(
@@ -429,43 +493,83 @@ fn handle_tools_call(
         VibeError::InvalidArguments("MCP tools/call requires a tool name".to_string())
     })?;
 
-    if name != STATUS_TOOL_NAME {
+    let Some(tool) = tool_from_name(name) else {
         return Ok(json_rpc_error(
             id,
             -32602,
             format!("unknown MCP tool `{name}`"),
             None,
         ));
-    }
+    };
 
-    let result = match evaluate_status_tool(FsWorkspaceProbe::new(config.root.clone())) {
-        Ok(response) => serde_json::json!({
-            "content": [{
-                "type": "text",
-                "text": serde_json::to_string(&response).map_err(|error| {
-                    VibeError::StatusEvaluationFailed(format!(
-                        "could not serialize MCP status content: {error}"
-                    ))
-                })?
-            }],
-            "structuredContent": response,
-            "isError": false
-        }),
-        Err(error) => {
-            let response = map_error(error);
-            let message = response.message.clone();
-            serde_json::json!({
-                "content": [{
-                    "type": "text",
-                    "text": message
-                }],
-                "structuredContent": response,
-                "isError": true
-            })
-        }
+    let result = match tool {
+        McpTool::Status => handle_status_tool_call(config)?,
+        McpTool::ActivePlanValidation => handle_active_plan_validation_tool_call(config)?,
     };
 
     Ok(json_rpc_success(id, serialize_protocol_result(result)?))
+}
+
+fn handle_status_tool_call(config: &McpServerConfig) -> Result<Value, VibeError> {
+    Ok(
+        match evaluate_status_tool(FsWorkspaceProbe::new(config.root.clone())) {
+            Ok(response) => serde_json::json!({
+                "content": [{
+                    "type": "text",
+                    "text": serde_json::to_string(&response).map_err(|error| {
+                        VibeError::StatusEvaluationFailed(format!(
+                            "could not serialize MCP status content: {error}"
+                        ))
+                    })?
+                }],
+                "structuredContent": response,
+                "isError": false
+            }),
+            Err(error) => {
+                let response = map_error(error);
+                let message = response.message.clone();
+                serde_json::json!({
+                    "content": [{
+                        "type": "text",
+                        "text": message
+                    }],
+                    "structuredContent": response,
+                    "isError": true
+                })
+            }
+        },
+    )
+}
+
+fn handle_active_plan_validation_tool_call(config: &McpServerConfig) -> Result<Value, VibeError> {
+    Ok(
+        match evaluate_active_plan_validation_tool(FsWorkspaceProbe::new(config.root.clone())) {
+            Ok(response) => serde_json::json!({
+                "content": [{
+                    "type": "text",
+                    "text": serde_json::to_string(&response).map_err(|error| {
+                        VibeError::StatusEvaluationFailed(format!(
+                            "could not serialize MCP active-plan validation content: {error}"
+                        ))
+                    })?
+                }],
+                "structuredContent": response,
+                "isError": false
+            }),
+            Err(error) => {
+                let response = map_error(error);
+                let message = response.message.clone();
+                serde_json::json!({
+                    "content": [{
+                        "type": "text",
+                        "text": message
+                    }],
+                    "structuredContent": response,
+                    "isError": true
+                })
+            }
+        },
+    )
 }
 
 fn json_rpc_success(id: Option<Value>, result: Value) -> JsonRpcResponse {
@@ -511,9 +615,10 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
-        evaluate_status_tool, map_error, read_content_length_message, run_stdio_session,
-        status_tool_descriptor, write_content_length_message, McpErrorCode, McpServerConfig,
-        STATUS_TOOL_NAME,
+        active_plan_validation_tool_descriptor, evaluate_status_tool, map_error,
+        read_content_length_message, run_stdio_session, status_tool_descriptor,
+        write_content_length_message, McpErrorCode, McpServerConfig,
+        ACTIVE_PLAN_VALIDATION_TOOL_NAME, STATUS_TOOL_NAME,
     };
     use crate::adapters::test_support::FakeWorkspaceProbe;
     use crate::domain::ReadinessState;
@@ -533,6 +638,17 @@ mod tests {
         assert!(descriptor.idempotent);
         assert!(descriptor.local_only);
         assert!(descriptor.description.contains("readiness"));
+    }
+
+    #[test]
+    fn active_plan_validation_tool_descriptor_is_read_only_idempotent_and_local() {
+        let descriptor = active_plan_validation_tool_descriptor();
+
+        assert_eq!(descriptor.name, ACTIVE_PLAN_VALIDATION_TOOL_NAME);
+        assert!(descriptor.read_only);
+        assert!(descriptor.idempotent);
+        assert!(descriptor.local_only);
+        assert!(descriptor.description.contains("execution plans"));
     }
 
     #[test]
@@ -662,6 +778,10 @@ mod tests {
         assert_eq!(responses[1]["id"], 2);
         assert_eq!(responses[1]["result"]["tools"][0]["name"], STATUS_TOOL_NAME);
         assert_eq!(
+            responses[1]["result"]["tools"][1]["name"],
+            ACTIVE_PLAN_VALIDATION_TOOL_NAME
+        );
+        assert_eq!(
             responses[1]["result"]["tools"][0]["annotations"]["readOnlyHint"],
             true
         );
@@ -747,6 +867,57 @@ mod tests {
         assert_eq!(structured["project_name"], "vibe-sentinel");
         assert_eq!(structured["ready"], true);
         assert_eq!(structured["checks"].as_array().expect("checks").len(), 3);
+    }
+
+    #[test]
+    fn session_handles_active_plan_validation_tool_call_request() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"plans-1","method":"tools/call","params":{"name":"vibe_sentinel_validate_active_plans","arguments":{}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        let structured = &responses[0]["result"]["structuredContent"];
+        assert_eq!(responses[0]["id"], "plans-1");
+        assert_eq!(responses[0]["result"]["isError"], false);
+        assert_eq!(structured["project_name"], "vibe-sentinel");
+        assert_eq!(structured["plans"].as_array().expect("plans").len(), 1);
+    }
+
+    #[test]
+    fn session_maps_active_plan_validation_workspace_errors_to_tool_error_payload() {
+        let workspace = TestWorkspace::new_with_unreadable_active_plan();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"vibe_sentinel_validate_active_plans","arguments":{}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], 9);
+        assert_eq!(responses[0]["result"]["isError"], true);
+        assert_eq!(
+            responses[0]["result"]["structuredContent"]["code"],
+            "workspace_unreadable"
+        );
     }
 
     #[test]
@@ -903,10 +1074,45 @@ mod tests {
         .expect("operating model doc");
         std::fs::write(root.join("docs/exec-plans/active/README.md"), "# Active\n")
             .expect("active readme");
-        std::fs::write(root.join("docs/exec-plans/active/test-plan.md"), "# Plan\n")
-            .expect("active plan");
+        std::fs::write(
+            root.join("docs/exec-plans/active/test-plan.md"),
+            ready_plan_fixture(),
+        )
+        .expect("active plan");
         std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"fixture\"\n")
             .expect("cargo manifest");
+    }
+
+    fn ready_plan_fixture() -> &'static str {
+        r#"# Execution Plan: Example
+
+## Modified TDD artifacts
+
+### Reviewed Plan
+
+- Plan review status: reviewed
+
+### Reviewed Architecture
+
+- Architecture review status: reviewed
+
+### Skeleton Checklist
+
+- [x] `domain` skeleton added.
+
+### Mock Test Checklist
+
+- [x] core test covers skeleton behavior.
+
+### Implementation Checklist
+
+- [x] Fill `domain` behavior.
+- Validation after this unit: `cargo test session_handles_active_plan_validation_tool_call_request` passed.
+
+### Validation Log
+
+- 2026-05-07: `python3 scripts/validate_tdd_workflow.py docs/exec-plans/active/example.md` -> passed.
+"#
     }
 
     fn unique_test_root() -> PathBuf {

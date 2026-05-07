@@ -53,9 +53,57 @@ impl StatusReport {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ValidationSeverity {
+    Error,
+    Warning,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ValidationState {
+    Ready,
+    Missing,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ValidationEvidence {
+    pub section: String,
+    pub line: Option<usize>,
+    pub excerpt: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ValidationIssue {
+    pub rule_id: String,
+    pub severity: ValidationSeverity,
     pub message: String,
+    pub evidence: Option<ValidationEvidence>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ValidationCheck {
+    pub rule_id: String,
+    pub state: ValidationState,
+    pub severity: ValidationSeverity,
+    pub message: String,
+    pub evidence: Option<ValidationEvidence>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PlanValidationReport {
+    pub path: String,
+    pub ready: bool,
+    pub checks: Vec<ValidationCheck>,
+    pub issues: Vec<ValidationIssue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ActivePlansValidationReport {
+    pub project_name: String,
+    pub ready: bool,
+    pub plans: Vec<PlanValidationReport>,
 }
 
 #[cfg(test)]

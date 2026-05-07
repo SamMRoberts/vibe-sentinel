@@ -12,7 +12,7 @@ them to parse CLI text output.
 - Coding agents checking harness readiness through MCP before changing code.
 - Future workflow-enforcement slices that need a stable MCP status contract.
 
-## Public Contract
+## Current Public Contract
 
 - Entry point: `vibe-sentinel mcp serve`.
 - Transport: local stdio MCP server unless the active execution plan approves a
@@ -24,8 +24,8 @@ them to parse CLI text output.
 - Error behavior: invalid protocol payloads and workspace read failures return
   actionable MCP errors without panics or hidden side effects.
 
-This public CLI and MCP contract was explicitly selected for implementation on
-2026-05-07 before code work began.
+This public CLI and MCP contract was approved and shipped by the completed MCP
+status tool slice.
 
 ## Status Shape
 

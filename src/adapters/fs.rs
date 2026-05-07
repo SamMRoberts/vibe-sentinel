@@ -19,9 +19,13 @@ impl WorkspaceProbe for FsWorkspaceProbe {
     }
 
     fn has_any_active_plan(&self) -> Result<bool, VibeError> {
+        Ok(!self.active_plan_paths()?.is_empty())
+    }
+
+    fn active_plan_paths(&self) -> Result<Vec<String>, VibeError> {
         let active_dir = self.root.join("docs/exec-plans/active");
         if !active_dir.exists() {
-            return Ok(false);
+            return Ok(Vec::new());
         }
 
         let entries = std::fs::read_dir(&active_dir).map_err(|error| {
@@ -31,6 +35,7 @@ impl WorkspaceProbe for FsWorkspaceProbe {
             ))
         })?;
 
+        let mut paths = Vec::new();
         for entry in entries {
             let entry = entry.map_err(|error| {
                 VibeError::WorkspaceUnreadable(format!(
@@ -45,11 +50,22 @@ impl WorkspaceProbe for FsWorkspaceProbe {
                 .and_then(|file_name| file_name.to_str())
                 .is_some_and(|file_name| file_name.eq_ignore_ascii_case("README.md"));
             if path.is_file() && is_markdown && !is_readme {
-                return Ok(true);
+                if let Some(file_name) = path.file_name().and_then(|file_name| file_name.to_str()) {
+                    paths.push(format!("docs/exec-plans/active/{file_name}"));
+                }
             }
         }
 
-        Ok(false)
+        paths.sort();
+        Ok(paths)
+    }
+
+    fn read_text_file(&self, relative_path: &str) -> Result<String, VibeError> {
+        std::fs::read_to_string(self.root.join(relative_path)).map_err(|error| {
+            VibeError::WorkspaceUnreadable(format!(
+                "could not read workspace file `{relative_path}`: {error}"
+            ))
+        })
     }
 }
 
@@ -73,6 +89,47 @@ mod tests {
         let probe = FsWorkspaceProbe::new(root.clone());
 
         assert!(probe.has_any_active_plan().expect("active plan check"));
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn fs_workspace_probe_lists_active_plan_files_in_deterministic_order() {
+        let root = unique_test_root();
+        let active_dir = root.join("docs/exec-plans/active");
+        fs::create_dir_all(&active_dir).expect("active dir");
+        fs::write(active_dir.join("README.md"), "# Active plans\n").expect("readme");
+        fs::write(active_dir.join("b-plan.md"), "# B\n").expect("b plan");
+        fs::write(active_dir.join("a-plan.md"), "# A\n").expect("a plan");
+        fs::write(active_dir.join("notes.txt"), "ignore\n").expect("notes");
+
+        let probe = FsWorkspaceProbe::new(root.clone());
+
+        assert_eq!(
+            probe.active_plan_paths().expect("active plan paths"),
+            vec![
+                "docs/exec-plans/active/a-plan.md".to_string(),
+                "docs/exec-plans/active/b-plan.md".to_string()
+            ]
+        );
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn fs_workspace_probe_reads_text_files_under_workspace_root() {
+        let root = unique_test_root();
+        fs::create_dir_all(root.join("docs/exec-plans/active")).expect("active dir");
+        fs::write(root.join("docs/exec-plans/active/plan.md"), "# Plan\n").expect("plan");
+
+        let probe = FsWorkspaceProbe::new(root.clone());
+
+        assert_eq!(
+            probe
+                .read_text_file("docs/exec-plans/active/plan.md")
+                .expect("plan text"),
+            "# Plan\n"
+        );
 
         fs::remove_dir_all(root).expect("cleanup");
     }

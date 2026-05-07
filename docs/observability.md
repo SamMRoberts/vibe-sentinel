@@ -9,6 +9,9 @@
   newline-delimited stdio messages, legacy Content-Length framing,
   `initialize`, `tools/list`, successful `tools/call`, unknown tools, and
   workspace read failures.
+- For the local MCP active-plan validation tool, fixture coverage should include
+  `tools/list` metadata, successful `tools/call`, empty active-plan state,
+  semantic validation issues, and workspace read failures.
 - Keep execution-plan validation logs current after each skeleton unit is implemented.
 
 ## Reporting

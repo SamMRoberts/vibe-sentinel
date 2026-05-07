@@ -3,7 +3,7 @@
 ## Project
 
 - Name: vibe-sentinel
-- Purpose: Rust CLI, ratatui TUI, and MCP feature development under a strict TDD workflow.
+- Purpose: Rust CLI, ratatui TUI, and MCP feature development under a strict modified TDD workflow.
 - Primary users/operators: maintainers and coding agents building, testing, and reviewing Rust features.
 
 ## In scope for coding agents
@@ -11,7 +11,7 @@
 - Rust CLI feature work with command parsing separated from business logic.
 - ratatui TUI feature work with render/state behavior isolated for tests.
 - MCP server, tool, resource, and protocol-adapter work that stays thin at the boundary.
-- Tests, mocks, fakes, fixtures, and validation scripts that support the TDD workflow.
+- Tests, mocks, fakes, fixtures, and validation scripts that support the modified TDD workflow.
 - Harness maintenance, docs updates, and execution plans that keep future agent work enforceable.
 
 ## Out of scope for coding agents
@@ -28,7 +28,7 @@
 - Data migrations.
 - Dependency swaps or runtime/package-manager changes.
 - Deployment changes.
-- Scope expansion or bypassing the TDD process.
+- Scope expansion or bypassing the modified TDD process.
 
 ## Scope gate
 

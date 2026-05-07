@@ -4,4 +4,8 @@ pub trait WorkspaceProbe {
     fn exists(&self, relative_path: &str) -> Result<bool, VibeError>;
 
     fn has_any_active_plan(&self) -> Result<bool, VibeError>;
+
+    fn active_plan_paths(&self) -> Result<Vec<String>, VibeError>;
+
+    fn read_text_file(&self, relative_path: &str) -> Result<String, VibeError>;
 }

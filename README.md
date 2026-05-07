@@ -34,8 +34,12 @@ For local MCP clients, start the read-only stdio server:
 cargo run -- mcp serve
 ```
 
-The MCP server exposes `vibe_sentinel_status`, a read-only, idempotent local
-tool with structured output equivalent to `vibe-sentinel status --json`.
+The MCP server exposes read-only, idempotent local tools:
+
+- `vibe_sentinel_status`: structured output equivalent to
+	`vibe-sentinel status --json`.
+- `vibe_sentinel_validate_active_plans`: implementation-readiness validation for
+	active execution plans under the modified TDD workflow.
 
 ## Validation
 
