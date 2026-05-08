@@ -1,5 +1,10 @@
 # Security and Privacy
 
+## Scope
+
+- This file owns the repo-wide security and privacy policy.
+- Use `docs/quality/security.md` for implementation-level coding and design guidance that helps satisfy this policy.
+
 ## Constraints
 
 - Validate all CLI arguments, config input, MCP payloads, storage records, and external-process data before they enter application behavior.

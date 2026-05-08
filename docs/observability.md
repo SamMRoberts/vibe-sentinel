@@ -1,5 +1,10 @@
 # Observability and Local Validation
 
+## Scope
+
+- This file owns the repo-wide observability and validation requirements.
+- Use `docs/quality/observability.md`, `docs/quality/testing.md`, `docs/quality/fixtures.md`, and `docs/quality/surfaces/mcp.md` for implementation-level guidance that supports these requirements.
+
 ## Local workflows
 
 - Record CLI examples and expected output when command behavior changes.

@@ -1,5 +1,10 @@
 # Review Expectations
 
+## Scope
+
+- This file owns the repo review loop and handoff expectations.
+- Use `docs/quality/testing.md`, `docs/quality/fixtures.md`, and `docs/quality/docs.md` for implementation-level guidance that supports the review loop.
+
 ## Local review loop
 
 1. Review the diff before final response.

@@ -18,6 +18,12 @@
 - Skeleton code may be minimal, but it must be intentionally mockable.
 - Implementation should land one planned unit at a time with validation evidence.
 
+## Ownership
+
+- Top-level docs such as `docs/architecture.md`, `docs/security.md`, `docs/reliability.md`, `docs/observability.md`, and `docs/review.md` own repo-wide policy, contracts, and required validation/reporting.
+- `docs/quality/` owns implementation-level guidance, heuristics, and review cues that help engineers satisfy those top-level docs.
+- When guidance overlaps, the top-level docs win; `docs/quality/` should complement them rather than restate or weaken them.
+
 ## Language-specific guides
 
 | Language | Guide |

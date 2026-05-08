@@ -23,3 +23,9 @@
 
 Architecture changes require an active execution plan and, when listed in
 `docs/harness/scope.md`, explicit human approval.
+
+## Companion guides
+
+- Use `docs/quality/boundaries.md` for implementation-level layering and translation guidance.
+- Use `docs/quality/dependencies.md` for third-party integration rules at architecture boundaries.
+- Use `docs/quality/storage.md` for persistence-shape and storage-adapter guidance.
