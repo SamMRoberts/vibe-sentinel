@@ -17,3 +17,7 @@
 - Promote repeated review feedback into docs or mechanical checks.
 - Skeleton code may be minimal, but it must be intentionally mockable.
 - Implementation should land one planned unit at a time with validation evidence.
+
+## Language-specific guides
+
+- `docs/quality/languages/cs.md`: C# programming best practices.
