@@ -25,6 +25,7 @@
 | C | `docs/quality/languages/c.md` |
 | C++ | `docs/quality/languages/cpp.md` |
 | C# | `docs/quality/languages/cs.md` |
+| Generic | `docs/quality/languages/generic.md` |
 | Go | `docs/quality/languages/go.md` |
 | HTML | `docs/quality/languages/html.md` |
 | Java | `docs/quality/languages/java.md` |
@@ -36,3 +37,12 @@
 | Shell | `docs/quality/languages/shell.md` |
 | Swift | `docs/quality/languages/swift.md` |
 | TypeScript | `docs/quality/languages/typescript.md` |
+
+## Data guides
+
+| Data Type | Guide |
+| --- | --- |
+| Generic | `docs/quality/data/generic.md` |
+| Kusto | `docs/quality/data/kusto.md` |
+| NoSQL | `docs/quality/data/nosql.md` |
+| SQL | `docs/quality/data/sql.md` |

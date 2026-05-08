@@ -8,7 +8,7 @@ This folder is the system of record for coding agents working on `vibe-sentinel`
 - `design-docs/`: decisions, design history, and core beliefs.
 - `exec-plans/`: active plans, completed plans, technical debt, and the TDD plan template.
 - `app-specs/`: product requirements and user-facing behavior.
-- `quality/`: language-specific quality guides that extend the top-level quality bar.
+- `quality/`: language-specific and data-specific quality guides that extend the top-level quality bar.
 - `references/`: external or copied reference material made repo-local.
 
 ## Required top-level docs
