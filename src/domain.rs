@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VibeError {
@@ -106,22 +106,7 @@ pub struct ActivePlansValidationReport {
     pub plans: Vec<PlanValidationReport>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct ActivePlanResource {
-    pub uri: String,
-    pub name: String,
-    pub path: String,
-    pub mime_type: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct ActivePlanResourceRead {
-    pub uri: String,
-    pub mime_type: String,
-    pub text: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TddGateAction {
     StartArchitecture,
@@ -185,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn tdd_gate_action_serializes_as_mcp_argument_value() {
+    fn tdd_gate_action_serializes_as_structured_value() {
         let value =
             serde_json::to_value(TddGateAction::StartImplementation).expect("serialize action");
 

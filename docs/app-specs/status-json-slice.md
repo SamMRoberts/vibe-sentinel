@@ -3,14 +3,14 @@
 ## Purpose
 
 Add a structured output mode to the existing `vibe-sentinel status` command so
-future agents, tests, TUI views, and MCP surfaces can consume readiness results
+future agents, tests, and TUI views can consume readiness results
 without parsing human-readable text.
 
 ## Users
 
 - Maintainers integrating status checks into scripts.
 - Coding agents reading local readiness signals programmatically.
-- Future TUI and MCP surfaces that need structured status data.
+- TUI surfaces that need structured status data.
 
 ## Current Public Contract
 
@@ -58,6 +58,5 @@ JSON. These dependencies were explicitly approved for the JSON status slice.
 
 - Add broad CLI command structure.
 - Add new TUI behavior beyond the shipped status view.
-- Add MCP tools or resources.
 - Change status evaluation checks.
 - Add network, credential, deployment, or destructive behavior.

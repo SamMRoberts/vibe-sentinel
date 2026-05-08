@@ -25,11 +25,11 @@ Bootstrap `vibe-sentinel` from a harness-only repository into a Rust product wor
 
 ### Out of scope
 
-- Defining or implementing broad CLI, TUI, or MCP product contracts beyond the first approved CLI status slice.
+- Defining or implementing broad CLI or TUI product contracts beyond the first approved CLI status slice.
 - Production credential changes, deployment changes, data migrations, or destructive operations.
 - Dependency swaps or runtime/package-manager changes without explicit human approval.
 - Filling feature implementation bodies before reviewed plan, reviewed architecture pseudocode, mockable skeletons, and passing skeleton-level tests exist.
-- Non-Rust rewrites or replacing the CLI/TUI/MCP product shape.
+- Non-Rust rewrites or replacing the CLI/TUI product shape.
 
 ## Harness docs consulted
 
@@ -69,13 +69,13 @@ Bootstrap `vibe-sentinel` from a harness-only repository into a Rust product wor
 - Acceptance criteria:
   - Document the CLI status vertical slice before creating Rust skeletons.
   - Proposed public command is `vibe-sentinel status`, pending explicit human approval before skeleton creation.
-  - Preserve the layer order: domain types -> service traits -> application core -> adapters -> CLI/TUI/MCP surfaces.
+  - Preserve the layer order: domain types -> service traits -> application core -> adapters -> CLI/TUI surfaces.
   - Keep command parsing separate from command execution.
   - Keep filesystem access isolated behind a mockable workspace-probe trait.
   - Keep CLI output deterministic and testable.
   - Validate untrusted input at boundaries and avoid hidden side effects.
 - Constraints:
-  - Public CLI, TUI, MCP, storage, or wire-contract decisions require explicit human approval before implementation.
+  - Public CLI, TUI, storage, or wire-contract decisions require explicit human approval before implementation.
   - Security model, dependency/runtime/package-manager, deployment, data migration, and scope/process changes require explicit human approval.
   - No feature implementation bodies before reviewed architecture, skeletons, and passing skeleton-level tests.
 - Non-goals:
@@ -108,7 +108,7 @@ Bootstrap `vibe-sentinel` from a harness-only repository into a Rust product wor
   - None yet. Copy durable crate or protocol references before depending on them for architecture decisions.
 - Findings:
   - The repository currently appears to contain the harness and validation script, but no Rust workspace.
-  - The high-level product spec does not yet define broad commands, TUI workflows, MCP tools/resources, storage behavior, or data model.
+  - The high-level product spec does not yet define broad commands, TUI workflows, storage behavior, or data model.
   - The first proposed slice is documented in `docs/app-specs/cli-status-slice.md`.
   - `docs/tooling.md` lists Cargo validation commands that become runnable after workspace scaffolding exists.
   - `scripts/validate_tdd_workflow.py` verifies required plan headings but not review quality, pseudocode completeness, or validation evidence quality.
@@ -118,7 +118,7 @@ Bootstrap `vibe-sentinel` from a harness-only repository into a Rust product wor
 - Plan review status: approved on 2026-05-06
 - Refinements made:
   - User selected product bootstrap as the target.
-  - User selected defining the first slice during the plan rather than assuming CLI-first, TUI-first, or MCP-first implementation.
+  - User selected defining the first slice during the plan rather than assuming a broader implementation.
   - User approved this active plan and selected CLI status as the first vertical slice.
   - User approved the proposed public CLI contract `vibe-sentinel status` with deterministic text output.
 
@@ -214,7 +214,7 @@ module cli
 - Architecture review status: approved on 2026-05-06
 - Refinements made:
   - Topology narrowed to the CLI status slice only.
-  - TUI and MCP surfaces are out of the first slice.
+  - TUI surfaces are out of the first slice.
   - Filesystem access is isolated behind `WorkspaceProbe`.
   - User approved this architecture pseudocode for skeleton scaffolding.
 
@@ -309,7 +309,7 @@ module cli
 
 - Diff review: complete; changes stayed inside the approved CLI status slice and preserved the documented layer boundaries.
 - Risks:
-  - Future public CLI, TUI, MCP, storage, or wire-contract choices still require human approval before implementation.
+  - Future public CLI, TUI, storage, or wire-contract choices still require human approval before implementation.
   - The TDD validator checks required headings only, so plan and architecture review must still be done manually.
 - Follow-ups:
   - Consider adding stronger TDD validator checks after the first slice proves the workflow.
@@ -340,7 +340,7 @@ module cli
 - Mitigation: keep this plan active and stop at review gates until required sections are complete.
 - Rollback: remove unreviewed product code and return to this active plan.
 - Risk: public contracts are selected without approval.
-- Mitigation: explicitly record proposed CLI/TUI/MCP/storage/wire contracts and ask for approval before implementation.
+- Mitigation: explicitly record proposed CLI/TUI/storage/wire contracts and ask for approval before implementation.
 - Rollback: revise the spec and architecture before skeletons are created.
 - Risk: dependencies are added prematurely.
 - Mitigation: document dependency rationale in research notes and require approval for dependency/runtime changes.
@@ -369,4 +369,4 @@ module cli
 - Product bootstrap is the first implementation track.
 - The first concrete slice is CLI status reporting.
 - No Rust implementation bodies will be added until reviewed architecture, mockable skeletons, and passing skeleton-level tests exist.
-- Public CLI, TUI, MCP, storage, or wire-contract choices must be treated as approval-required before implementation.
+- Public CLI, TUI, storage, or wire-contract choices must be treated as approval-required before implementation.

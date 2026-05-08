@@ -7,9 +7,8 @@
 
 ## Constraints
 
-- Validate all CLI arguments, config input, MCP payloads, storage records, and external-process data before they enter application behavior.
+- Validate all CLI arguments, config input, storage records, and external-process data before they enter application behavior.
 - Treat credentials, tokens, local memory content, and repository paths as sensitive unless a design doc says otherwise.
-- Keep MCP tools explicit about read/write behavior and avoid hidden side effects.
 
 ## Non-negotiable rules
 
@@ -22,7 +21,7 @@
 
 - Keep security-sensitive checks close to the adapter or service that owns the boundary.
 - Prefer explicit allowlists, typed parsing, and narrow contracts over permissive catch-all handlers.
-- Treat hidden side effects as security debt, especially in MCP tools and automation-facing paths.
+- Treat hidden side effects as security debt, especially in automation-facing paths.
 - Fail closed when validation is missing, parsing is ambiguous, or authorization context is unclear.
 
 ## Data handling
@@ -37,7 +36,7 @@
 - Wrap external-process, filesystem, and network interactions behind explicit interfaces.
 - Sanitize paths, arguments, and serialized payloads before handing them to external tools.
 - Do not trust dependency defaults for auth, TLS, retries, or serialization safety without verifying them.
-- Prefer explicit read-only and write-capable paths when defining MCP or automation behavior.
+- Prefer explicit read-only and write-capable paths when defining automation behavior.
 
 ## Review expectations
 

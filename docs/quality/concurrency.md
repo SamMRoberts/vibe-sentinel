@@ -3,7 +3,7 @@
 ## Ownership and lifecycle
 
 - Give every background task a clear owner, start condition, and stop condition.
-- Do not introduce hidden forever-work in the CLI, ratatui TUI, or MCP paths.
+- Do not introduce hidden forever-work in the CLI or ratatui TUI paths.
 - Pass shutdown and cancellation through the stack instead of relying on process exit to clean up.
 - Keep task boundaries explicit so the next agent can tell which layer owns retries, waiting, and cleanup.
 - Treat leaked work, orphaned watchers, and stale loops as correctness bugs.
@@ -12,7 +12,6 @@
 
 - Keep CLI commands single-shot by default; long-running behavior must expose status and exit conditions clearly.
 - Keep TUI background work visible in state and easy to stop when the screen or session ends.
-- Keep MCP handlers bounded; avoid work that can hang the stdio session without timeout, cancellation, or clear status.
 - Isolate concurrency in adapters or orchestrators rather than scattering task spawning across feature code.
 - Prefer message passing or explicit state transitions over shared mutable state when coordination is required.
 

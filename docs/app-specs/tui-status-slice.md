@@ -57,6 +57,5 @@ status slice.
 
 - Add broad TUI navigation or multiple screens.
 - Add new readiness checks.
-- Add MCP tools or resources.
 - Change text or JSON status output.
 - Add network, credential, deployment, or destructive behavior.

@@ -3,10 +3,10 @@
 ## Required boundaries
 
 - Domain types: pure data, value semantics, parsing targets, and error types.
-- Service traits: mockable ports for storage, clocks, process I/O, MCP transport, and other boundaries.
+- Service traits: mockable ports for storage, clocks, process I/O, and other boundaries.
 - Application core: feature behavior expressed against traits, not concrete UI or protocol adapters.
-- Adapters: concrete storage, filesystem, process, network, or MCP integration code.
-- Surfaces: CLI commands, ratatui TUI screens, and MCP tools/resources call into the application core.
+- Adapters: concrete storage, filesystem, process, or network integration code.
+- Surfaces: CLI commands and ratatui TUI screens call into the application core.
 
 ## Dependency rules
 
@@ -17,7 +17,6 @@
 - Prefer shared utilities over repeated local helpers when behavior should be consistent.
 - Keep command parsing separate from command execution.
 - Keep ratatui rendering and state transitions testable without a real terminal.
-- Keep MCP protocol handling thin and covered by request/response fixtures.
 
 ## Architecture change rule
 

@@ -54,7 +54,6 @@ operations, destructive file operations, or hidden long-running work.
 
 - Full CLI command set.
 - New TUI screens beyond the shipped status view.
-- MCP tools or resources.
 - New structured output modes beyond the shipped JSON status output.
 - Persistent configuration or storage.
 - Network, credential, deployment, or destructive operations.

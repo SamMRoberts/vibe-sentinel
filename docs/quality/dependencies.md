@@ -11,7 +11,7 @@
 
 - Keep third-party APIs behind adapters or service traits from `docs/architecture.md`.
 - Do not let vendor types leak through the application core when a local domain type is clearer.
-- Keep CLI, TUI, and MCP surfaces thin even when a dependency offers its own workflow abstractions.
+- Keep CLI and TUI surfaces thin even when a dependency offers its own workflow abstractions.
 - Centralize repeated integration behavior instead of scattering one-off wrappers across features.
 
 ## Features and configuration

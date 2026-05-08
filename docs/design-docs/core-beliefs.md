@@ -24,7 +24,7 @@ execution-plan checks.
 
 ## Project-specific quality invariants
 
-- Keep Rust CLI, ratatui TUI, and MCP boundaries thin and testable.
+- Keep Rust CLI and ratatui TUI boundaries thin and testable.
 - Validate data at all external boundaries.
 - Avoid hidden coupling between application core and adapters.
 - Keep future agent runs easy to reason about.

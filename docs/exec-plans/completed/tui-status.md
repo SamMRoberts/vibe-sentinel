@@ -25,7 +25,6 @@ Added an approved read-only ratatui status view over the existing readiness repo
 
 - Multiple TUI screens or broad navigation.
 - New readiness checks.
-- MCP tools or resources.
 - Network, credential, deployment, data migration, or destructive behavior.
 - Hand-rolled terminal rendering if `ratatui` and runtime backend dependencies are approved.
 
@@ -73,7 +72,7 @@ Added an approved read-only ratatui status view over the existing readiness repo
   - Adding `ratatui` and any terminal backend dependency requires explicit human approval.
   - No Rust implementation bodies before reviewed plan, reviewed architecture, skeletons, skeleton-level tests, and passing skeleton-level validation.
 - Non-goals:
-  - Broad TUI navigation, MCP, deployment, credential, network, or new readiness-check work.
+  - Broad TUI navigation, deployment, credential, network, or new readiness-check work.
 
 ### Research Notes
 
@@ -106,7 +105,7 @@ Added an approved read-only ratatui status view over the existing readiness repo
   - `StatusReport`, `StatusCheck`, and `ReadinessState` are the correct domain model for a TUI view.
   - Existing text and JSON status behavior is already covered by unit and integration tests.
   - `Cargo.toml` did not include `ratatui` or a terminal backend dependency before this slice.
-  - The JSON status slice explicitly anticipated future TUI and MCP consumers.
+  - The JSON status slice explicitly anticipated future TUI consumers.
 
 ### Reviewed Plan
 

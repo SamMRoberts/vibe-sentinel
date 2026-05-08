@@ -2,7 +2,7 @@
 
 ## Purpose
 
-- Use fixtures to make CLI, TUI, MCP, storage, and adapter behavior repeatable for future agent runs.
+- Use fixtures to make CLI, TUI, storage, and adapter behavior repeatable for future agent runs.
 - Keep fixtures focused on one behavior or failure mode so test intent stays obvious.
 - Prefer realistic boundary shapes over oversized sample projects with unrelated noise.
 
@@ -30,6 +30,5 @@
 ## Review and validation
 
 - Pair fixture changes with the narrowest relevant tests or validation commands from `docs/tooling.md`.
-- Keep MCP and protocol fixtures aligned with the thin boundary rules from `docs/architecture.md`.
 - Prefer explicit assertions over snapshot sprawl when a few fields prove the behavior.
 - Report skipped fixture validation clearly in the final response, consistent with `docs/review.md`.

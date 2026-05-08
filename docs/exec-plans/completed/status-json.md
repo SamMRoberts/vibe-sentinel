@@ -24,7 +24,6 @@ Added an approved structured JSON output mode to the existing `vibe-sentinel sta
 ### Out of scope
 
 - TUI screens.
-- MCP tools or resources.
 - New readiness checks.
 - Network, credential, deployment, data migration, or destructive behavior.
 - Hand-rolled JSON if `serde` and `serde_json` are approved.
@@ -69,7 +68,7 @@ Added an approved structured JSON output mode to the existing `vibe-sentinel sta
   - Adding `serde` and `serde_json` requires explicit human approval.
   - No Rust implementation bodies before reviewed plan, reviewed architecture, skeleton/test updates, and passing skeleton-level tests.
 - Non-goals:
-  - TUI, MCP, deployment, credential, or network work.
+  - TUI, deployment, credential, or network work.
 
 ### Research Notes
 

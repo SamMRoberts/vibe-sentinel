@@ -9,7 +9,6 @@
 
 - CLI commands should fail with actionable errors and deterministic exit behavior.
 - ratatui workflows should avoid hidden background work that can run forever unnoticed.
-- MCP handlers should have explicit error mapping, timeouts where relevant, and fixture-backed behavior.
 - Long-running or stateful behavior needs observability that a future agent can inspect locally.
 
 ## Operational rules

@@ -4,7 +4,7 @@
 
 - Keep storage behind service traits so the application core depends on behavior, not storage details.
 - Parse and validate storage records at the adapter boundary before they influence domain behavior.
-- Do not let file layout, SQL shape, or cache structure leak into CLI, TUI, or MCP surfaces.
+- Do not let file layout, SQL shape, or cache structure leak into CLI or TUI surfaces.
 - Keep persistence rules consistent with the layering in `docs/architecture.md`.
 
 ## Data design

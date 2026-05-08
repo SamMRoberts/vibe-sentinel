@@ -16,7 +16,7 @@
 
 ## Writing style
 
-- Keep guides concise, scannable, and specific to the repo's CLI, TUI, MCP, and harness workflow.
+- Keep guides concise, scannable, and specific to the repo's CLI, TUI, and harness workflow.
 - Use short sections and practical bullets that tell a future agent what to do or avoid.
 - Prefer explicit examples of ownership and boundaries over generic best-practice slogans.
 - Write so another agent can act without inferring hidden rules.

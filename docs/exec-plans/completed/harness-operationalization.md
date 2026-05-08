@@ -23,7 +23,7 @@ Make the existing coding harness operational for repeatable status review by add
 
 ### Out of scope
 
-- Runtime changes to CLI, TUI, MCP, domain, adapter, or status evaluation code.
+- Runtime changes to CLI, TUI, domain, adapter, or status evaluation code.
 - Scope expansion or bypassing the TDD workflow.
 - Dependency, deployment, security model, or wire-contract changes.
 - Moving completed plans or changing product behavior.

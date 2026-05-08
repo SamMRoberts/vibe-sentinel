@@ -3,7 +3,7 @@
 ## Purpose
 
 This file is the routing map for coding agents working on vibe-sentinel.
-Project purpose: Rust CLI, ratatui TUI, and MCP feature development under a strict TDD workflow.
+Project purpose: Rust CLI and ratatui TUI feature development under a strict TDD workflow.
 Keep this file short; put durable project knowledge in `docs/`.
 
 ## Harness rule
@@ -87,7 +87,7 @@ Add reference docs under `docs/references/`.
 
 ## Architecture requirements
 
-Preserve these boundaries: domain types -> service traits -> application core -> adapters -> CLI/TUI/MCP surfaces.
+Preserve these boundaries: domain types -> service traits -> application core -> adapters -> CLI/TUI surfaces.
 Do not add cross-layer imports or hidden coupling that bypasses documented boundaries.
 When architecture needs to change, update docs first and create an execution plan.
 

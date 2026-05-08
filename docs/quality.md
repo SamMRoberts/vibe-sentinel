@@ -4,7 +4,7 @@
 
 - Follow the TDD workflow for all feature development.
 - Prefer legible, tested, documented patterns.
-- Validate data at CLI, TUI, MCP, storage, and external-process boundaries.
+- Validate data at CLI, TUI, storage, and external-process boundaries.
 - Avoid hidden coupling between application core and UI/protocol adapters.
 - Keep future agent runs easy to reason about.
 
@@ -58,7 +58,6 @@
 | Surface | Guide |
 | --- | --- |
 | CLI | `docs/quality/surfaces/cli.md` |
-| MCP | `docs/quality/surfaces/mcp.md` |
 | TUI | `docs/quality/surfaces/tui.md` |
 
 ## Engineering guides

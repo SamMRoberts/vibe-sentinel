@@ -13,12 +13,12 @@ This folder is the system of record for coding agents working on `vibe-sentinel`
 
 ## Required top-level docs
 
-- `architecture.md`: Rust CLI, ratatui TUI, MCP, and application-core boundaries.
+- `architecture.md`: Rust CLI, ratatui TUI, and application-core boundaries.
 - `tooling.md`: Cargo commands and harness validation workflows.
 - `quality.md`: Quality bar and implementation invariants.
 - `security.md`: security and privacy constraints.
 - `reliability.md`: reliability and operational expectations.
-- `observability.md`: CLI, TUI, MCP, logs, and validation evidence workflows.
+- `observability.md`: CLI, TUI, logs, and validation evidence workflows.
 - `review.md`: review loop and TDD compliance checks.
 
 Update this map when docs are added, moved, retired, or replaced.

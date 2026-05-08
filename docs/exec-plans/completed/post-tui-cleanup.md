@@ -25,7 +25,7 @@ Clean up post-TUI drift after the completed text, JSON, and TUI status slices. T
 
 ### Out of scope
 
-- New CLI, JSON, TUI, or MCP features.
+- New CLI, JSON, or TUI features.
 - New readiness checks or changed readiness semantics.
 - New dependencies, dependency swaps, or runtime changes.
 - TUI navigation, layout redesign, or changed quit behavior.
@@ -76,7 +76,7 @@ Clean up post-TUI drift after the completed text, JSON, and TUI status slices. T
   - Reliability-sensitive TUI changes require a plan and focused regression tests.
   - No new dependencies or product-surface changes.
 - Non-goals:
-  - MCP, new readiness checks, TUI redesign, deployment, credential, network, or destructive work.
+  - New readiness checks, TUI redesign, deployment, credential, network, or destructive work.
 
 ### Research Notes
 
@@ -215,7 +215,7 @@ module tui
   - TUI lifecycle cleanup should not change normal TUI startup or quit behavior.
   - Parser copy should remain consistent across unknown, conflicting, and too-many-argument branches.
 - Follow-ups:
-  - MCP status should remain the next product slice after cleanup.
+  - Additional product slices should be planned separately after cleanup.
 
 ## Intended changes
 
@@ -257,4 +257,4 @@ module tui
 ## Decisions
 
 - Treat user request to start implementation as approval for the public CLI error text correction and public `render_status` behavior tightening described in this plan.
-- Keep this slice as cleanup only; MCP remains the next product feature after cleanup.
+- Keep this slice as cleanup only; additional product features require separate plans.

@@ -3,20 +3,19 @@
 ## Project
 
 - Name: vibe-sentinel
-- Purpose: Rust CLI, ratatui TUI, and MCP feature development under a strict TDD workflow.
+- Purpose: Rust CLI and ratatui TUI feature development under a strict TDD workflow.
 - Primary users/operators: maintainers and coding agents building, testing, and reviewing Rust features.
 
 ## In scope for coding agents
 
 - Rust CLI feature work with command parsing separated from business logic.
 - ratatui TUI feature work with render/state behavior isolated for tests.
-- MCP server, tool, resource, and protocol-adapter work that stays thin at the boundary.
 - Tests, mocks, fakes, fixtures, and validation scripts that support the TDD workflow.
 - Harness maintenance, docs updates, and execution plans that keep future agent work enforceable.
 
 ## Out of scope for coding agents
 
-- Non-Rust application rewrites or replacing the CLI/TUI/MCP product shape.
+- Non-Rust application rewrites or replacing the CLI/TUI product shape.
 - Production credential changes, destructive data operations, or unapproved deployment changes.
 - Filling feature implementation bodies before reviewed plans, reviewed architecture pseudocode, skeletons, and skeleton-level tests exist.
 - Unapproved architecture rewrites or work not represented in the harness scope.
@@ -24,7 +23,7 @@
 ## Requires explicit human approval
 
 - Security model changes.
-- Public CLI, TUI, MCP, storage, or wire-contract changes.
+- Public CLI, TUI, storage, or wire-contract changes.
 - Data migrations.
 - Dependency swaps or runtime/package-manager changes.
 - Deployment changes.

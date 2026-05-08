@@ -6,7 +6,7 @@ vibe-sentinel
 
 ## Purpose
 
-Rust CLI, ratatui TUI, and MCP feature development under a strict TDD workflow.
+Rust CLI and ratatui TUI feature development under a strict TDD workflow.
 
 ## Primary users/operators
 
@@ -16,7 +16,6 @@ Maintainers and coding agents building, testing, and reviewing Rust features.
 
 - CLI
 - ratatui TUI
-- MCP tools and resources
 - application core
 - developer tooling
 - documentation

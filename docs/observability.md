@@ -9,7 +9,6 @@
 
 - CLI failures must expose the failed operation, key inputs, and deterministic exit behavior.
 - TUI stateful or long-running work must be visible in the UI so background activity does not disappear silently.
-- MCP failures must be observable through stable error mapping and fixture-backed protocol responses.
 - Local status and debug output must be enough for a future agent to inspect runtime behavior without guessing.
 - Observability must survive partial failure; do not rely only on happy-path logs.
 
@@ -17,21 +16,6 @@
 
 - Record CLI examples and expected output when command behavior changes.
 - Use ratatui render/state assertions for UI behavior that can be tested without a terminal.
-- Capture MCP request/response fixtures for protocol behavior.
-- For the local MCP status tool, fixture coverage should include
-  newline-delimited stdio messages, legacy Content-Length framing,
-  `initialize`, `tools/list`, successful `tools/call`, unknown tools, and
-  workspace read failures.
-- For the local MCP active-plan validation tool, fixture coverage should include
-  `tools/list` metadata, successful `tools/call`, empty active-plan state,
-  semantic validation issues, and workspace read failures.
-- For no-argument MCP tools, fixture coverage should include omitted arguments,
-  empty-object arguments, non-object arguments, unexpected argument properties,
-  and malformed `tools/call` envelopes that must not abort the stdio session.
-- For local MCP active-plan resources, fixture coverage should include
-  `initialize` capability metadata, `resources/list`, `resources/read`, empty
-  active-plan state, malformed resource params, unknown URIs, workspace read
-  failures, and session continuity after protocol errors.
 - Keep execution-plan validation logs current after each skeleton unit is implemented.
 
 ## Logs and diagnostics

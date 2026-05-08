@@ -6,16 +6,7 @@
 - Package manager and build tool: Cargo.
 - CLI: parse commands separately from application behavior.
 - TUI: ratatui, with render/state logic isolated for tests.
-- MCP: thin protocol adapters over mockable application services.
 - Repository validation helpers may use Python 3 when they do not become runtime dependencies.
-
-## Local MCP command
-
-- `cargo run -- mcp serve`: start the local stdio MCP server.
-- `cargo test mcp::tests`: run MCP newline-delimited stdio, legacy
-  Content-Length, JSON-RPC, tool discovery, resource discovery/reads, status
-  and active-plan validation tool calls, no-argument validation, and
-  error-payload fixture coverage.
 
 ## Validation commands
 

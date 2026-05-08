@@ -14,7 +14,6 @@ pub struct CliArgs {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CliCommand {
     Status,
-    McpServe,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,10 +36,6 @@ where
     match arguments.as_slice() {
         [command] if command == "status" => Ok(CliArgs {
             command: CliCommand::Status,
-            output_format: OutputFormat::Text,
-        }),
-        [command, subcommand] if command == "mcp" && subcommand == "serve" => Ok(CliArgs {
-            command: CliCommand::McpServe,
             output_format: OutputFormat::Text,
         }),
         [command, flag] if command == "status" && flag == "--json" => Ok(CliArgs {
@@ -66,20 +61,11 @@ where
         [command, ..] if command == "status" => Err(VibeError::InvalidArguments(format!(
             "too many arguments for `status`: expected optional {STATUS_OUTPUT_FLAG_USAGE}"
         ))),
-        [command] if command == "mcp" => Err(VibeError::InvalidArguments(
-            "missing subcommand for `mcp`: expected `serve`".to_string(),
-        )),
-        [command, subcommand] if command == "mcp" => Err(VibeError::InvalidArguments(format!(
-            "unknown subcommand `mcp {subcommand}`: expected `mcp serve`"
-        ))),
-        [command, ..] if command == "mcp" => Err(VibeError::InvalidArguments(
-            "too many arguments for `mcp`: expected `mcp serve`".to_string(),
-        )),
         [] => Err(VibeError::InvalidArguments(
-            "missing command: expected `status` or `mcp serve`".to_string(),
+            "missing command: expected `status`".to_string(),
         )),
         [command, ..] => Err(VibeError::InvalidArguments(format!(
-            "unknown command `{command}`: expected `status` or `mcp serve`"
+            "unknown command `{command}`: expected `status`"
         ))),
     }
 }
@@ -100,9 +86,6 @@ pub fn execute_with_probe<P: WorkspaceProbe>(
 ) -> Result<StatusReport, VibeError> {
     match args.command {
         CliCommand::Status => StatusService::new(probe).evaluate(),
-        CliCommand::McpServe => Err(VibeError::InvalidArguments(
-            "MCP serve must be handled by the MCP runtime".to_string(),
-        )),
     }
 }
 
@@ -176,14 +159,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_args_accepts_mcp_serve() {
-        let args = parse_args(["vibe-sentinel", "mcp", "serve"]).expect("parsed args");
-
-        assert_eq!(args.command, CliCommand::McpServe);
-        assert_eq!(args.output_format, OutputFormat::Text);
-    }
-
-    #[test]
     fn parse_args_rejects_conflicting_status_output_flags() {
         let error =
             parse_args(["vibe-sentinel", "status", "--json", "--tui"]).expect_err("parse error");
@@ -243,21 +218,7 @@ mod tests {
 
         assert_eq!(
             error,
-            VibeError::InvalidArguments(
-                "unknown command `watch`: expected `status` or `mcp serve`".to_string()
-            )
-        );
-    }
-
-    #[test]
-    fn execute_with_probe_rejects_mcp_serve() {
-        let args = parse_args(["vibe-sentinel", "mcp", "serve"]).expect("parsed args");
-
-        assert_eq!(
-            execute_with_probe(args, FakeWorkspaceProbe::new()),
-            Err(VibeError::InvalidArguments(
-                "MCP serve must be handled by the MCP runtime".to_string()
-            ))
+            VibeError::InvalidArguments("unknown command `watch`: expected `status`".to_string())
         );
     }
 

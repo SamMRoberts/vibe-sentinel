@@ -12,8 +12,4 @@ Keep completed plans for historical context and future agent runs.
 - `status-json.md`: structured JSON output mode for the existing `status` command.
 - `post-tui-cleanup.md`: post-TUI CLI guidance, TUI setup cleanup, and shipped-doc alignment.
 - `tui-status.md`: read-only ratatui status view over the existing readiness report.
-- `mcp-status-tool.md`: local read-only MCP status tool over the existing readiness report.
-- `mcp-active-plan-validation.md`: local read-only MCP active-plan validation tool for implementation readiness.
-- `mcp-tools-call-arguments.md`: MCP `tools/call` no-argument validation hardening for shipped local tools.
-- `mcp-tdd-gate.md`: local read-only MCP TDD gate tool for proposed workflow transitions.
-- `mcp-active-plan-resources.md`: local read-only MCP resources for active execution plan markdown.
+- `remove-mcp-server.md`: removal of the local MCP server so the product ships with CLI/TUI only.
