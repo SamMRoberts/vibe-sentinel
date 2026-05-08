@@ -46,3 +46,26 @@
 | Kusto | `docs/quality/data/kusto.md` |
 | NoSQL | `docs/quality/data/nosql.md` |
 | SQL | `docs/quality/data/sql.md` |
+
+## Surface guides
+
+| Surface | Guide |
+| --- | --- |
+| CLI | `docs/quality/surfaces/cli.md` |
+| MCP | `docs/quality/surfaces/mcp.md` |
+| TUI | `docs/quality/surfaces/tui.md` |
+
+## Engineering guides
+
+| Topic | Guide |
+| --- | --- |
+| Boundaries | `docs/quality/boundaries.md` |
+| Concurrency | `docs/quality/concurrency.md` |
+| Dependencies | `docs/quality/dependencies.md` |
+| Documentation | `docs/quality/docs.md` |
+| Errors | `docs/quality/errors.md` |
+| Fixtures | `docs/quality/fixtures.md` |
+| Observability | `docs/quality/observability.md` |
+| Security | `docs/quality/security.md` |
+| Storage | `docs/quality/storage.md` |
+| Testing | `docs/quality/testing.md` |
