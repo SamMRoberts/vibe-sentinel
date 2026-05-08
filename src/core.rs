@@ -82,16 +82,22 @@ impl<P: WorkspaceProbe> ActivePlanResourceService<P> {
     }
 
     pub fn list_resources(&self) -> Result<Vec<ActivePlanResource>, VibeError> {
-        let _ = self.probe.active_plan_paths()?;
-        Ok(Vec::new())
+        self.probe
+            .active_plan_paths()?
+            .into_iter()
+            .map(|path| Ok(Self::resource_from_path(&path)))
+            .collect()
     }
 
     pub fn read_resource(&self, uri: &str) -> Result<ActivePlanResourceRead, VibeError> {
         let allowed_paths = self.probe.active_plan_paths()?;
-        let _ = Self::path_from_resource_uri(uri, &allowed_paths)?;
-        Err(VibeError::InvalidArguments(format!(
-            "unknown active plan resource `{uri}`"
-        )))
+        let path = Self::path_from_resource_uri(uri, &allowed_paths)?;
+        let text = self.probe.read_text_file(&path)?;
+        Ok(ActivePlanResourceRead {
+            uri: active_plan_resource_uri(&path),
+            mime_type: "text/markdown".to_string(),
+            text,
+        })
     }
 
     pub fn resource_from_path(path: &str) -> ActivePlanResource {
@@ -107,19 +113,25 @@ impl<P: WorkspaceProbe> ActivePlanResourceService<P> {
         uri: &str,
         allowed_paths: &[String],
     ) -> Result<String, VibeError> {
-        let _ = allowed_paths;
-        Err(VibeError::InvalidArguments(format!(
-            "unknown active plan resource `{uri}`"
-        )))
+        allowed_paths
+            .iter()
+            .find(|path| active_plan_resource_uri(path) == uri)
+            .cloned()
+            .ok_or_else(|| {
+                VibeError::InvalidArguments(format!("unknown active plan resource `{uri}`"))
+            })
     }
 }
 
 pub fn active_plan_resource_uri(path: &str) -> String {
-    format!("{ACTIVE_PLAN_RESOURCE_URI_PREFIX}{path}")
+    format!(
+        "{ACTIVE_PLAN_RESOURCE_URI_PREFIX}{}",
+        active_plan_resource_name(path)
+    )
 }
 
 pub fn active_plan_resource_name(path: &str) -> String {
-    path.to_string()
+    path.rsplit('/').next().unwrap_or(path).to_string()
 }
 
 impl<P: WorkspaceProbe> PlanValidationService<P> {
@@ -803,7 +815,7 @@ impl<P: WorkspaceProbe> StatusService<P> {
 
 #[cfg(test)]
 mod tests {
-    use super::{PlanValidationService, StatusService, TddGateService};
+    use super::{ActivePlanResourceService, PlanValidationService, StatusService, TddGateService};
     use crate::adapters::test_support::FakeWorkspaceProbe;
     use crate::domain::{ReadinessState, TddGateAction, TddWorkflowPhase, ValidationState};
 
@@ -873,6 +885,55 @@ mod tests {
             .checks
             .iter()
             .all(|check| check.state == ValidationState::Ready));
+    }
+
+    #[test]
+    fn active_plan_resources_list_sorted_active_markdown_files() {
+        let service = ActivePlanResourceService::new(
+            FakeWorkspaceProbe::new()
+                .with_active_plan_file("docs/exec-plans/active/b-plan.md", "# B\n")
+                .with_active_plan_file("docs/exec-plans/active/a-plan.md", "# A\n")
+                .with_text_file("docs/exec-plans/active/README.md", "# Active\n"),
+        );
+
+        let resources = service.list_resources().expect("resources");
+
+        assert_eq!(resources.len(), 2);
+        assert_eq!(resources[0].uri, "vibe-sentinel://active-plans/a-plan.md");
+        assert_eq!(resources[0].name, "a-plan.md");
+        assert_eq!(resources[0].path, "docs/exec-plans/active/a-plan.md");
+        assert_eq!(resources[0].mime_type, "text/markdown");
+        assert_eq!(resources[1].uri, "vibe-sentinel://active-plans/b-plan.md");
+    }
+
+    #[test]
+    fn active_plan_resources_read_known_resource() {
+        let service = ActivePlanResourceService::new(
+            FakeWorkspaceProbe::new()
+                .with_active_plan_file("docs/exec-plans/active/plan.md", "# Plan\n"),
+        );
+
+        let read = service
+            .read_resource("vibe-sentinel://active-plans/plan.md")
+            .expect("resource read");
+
+        assert_eq!(read.uri, "vibe-sentinel://active-plans/plan.md");
+        assert_eq!(read.mime_type, "text/markdown");
+        assert_eq!(read.text, "# Plan\n");
+    }
+
+    #[test]
+    fn active_plan_resources_reject_unknown_uri() {
+        let service = ActivePlanResourceService::new(
+            FakeWorkspaceProbe::new()
+                .with_active_plan_file("docs/exec-plans/active/plan.md", "# Plan\n"),
+        );
+
+        let error = service
+            .read_resource("vibe-sentinel://active-plans/missing.md")
+            .expect_err("unknown resource");
+
+        assert!(error.to_string().contains("unknown active plan resource"));
     }
 
     #[test]

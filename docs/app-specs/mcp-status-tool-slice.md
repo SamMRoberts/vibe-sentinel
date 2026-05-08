@@ -71,6 +71,6 @@ slice is underway.
 - Add remote MCP transport.
 - Add write-capable MCP tools.
 - Add resources, prompts, or multi-tool workflows.
-- Deepen modified-TDD semantic validation beyond the current status checks.
+- Deepen TDD semantic validation beyond the current status checks.
 - Change the existing status report shape or idle-state readiness semantics.
 - Add production deployment, credentials, persistent config, or storage.

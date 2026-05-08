@@ -2,8 +2,9 @@
 
 ## Status
 
-- State: planned
+- State: shipped
 - Created: 2026-05-07
+- Shipped: 2026-05-07
 
 ## Summary
 

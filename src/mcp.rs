@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::adapters::fs::FsWorkspaceProbe;
-use crate::core::{ActivePlanResourceService, PlanValidationService, StatusService, TddGateService};
+use crate::core::{
+    ActivePlanResourceService, PlanValidationService, StatusService, TddGateService,
+};
 use crate::domain::{
     ActivePlanResource, ActivePlanResourceRead, PlanValidationReport, StatusCheck, StatusReport,
     TddGateAction, TddGateReport, TddWorkflowPhase, ValidationIssue, VibeError,
@@ -221,8 +223,7 @@ pub fn active_plan_validation_tool_descriptor() -> McpToolDescriptor {
 pub fn tdd_gate_tool_descriptor() -> McpToolDescriptor {
     McpToolDescriptor {
         name: TDD_GATE_TOOL_NAME.to_string(),
-        description: "Check whether a proposed modified-TDD workflow transition is allowed"
-            .to_string(),
+        description: "Check whether a proposed TDD workflow transition is allowed".to_string(),
         read_only: true,
         idempotent: true,
         local_only: true,
@@ -549,21 +550,41 @@ fn parse_resource_read_params(
     id: Option<Value>,
     params: Option<Value>,
 ) -> ToolCallValidationResult<ResourceReadParams> {
-    let _ = params;
-    Err(Box::new(invalid_params(
-        id,
-        "MCP resources/read requires object params with a string uri",
-    )))
+    let params = params
+        .and_then(|value| value.as_object().cloned())
+        .ok_or_else(|| {
+            Box::new(invalid_params(
+                id.clone(),
+                "MCP resources/read requires object params",
+            ))
+        })?;
+    let uri = params.get("uri").and_then(Value::as_str).ok_or_else(|| {
+        Box::new(invalid_params(
+            id.clone(),
+            "MCP resources/read requires a string uri",
+        ))
+    })?;
+
+    Ok(ResourceReadParams {
+        uri: uri.to_string(),
+    })
 }
 
 fn handle_resources_list(
     config: &McpServerConfig,
     id: Option<Value>,
 ) -> Result<JsonRpcResponse, VibeError> {
-    let resources = evaluate_active_plan_resources_list(FsWorkspaceProbe::new(config.root.clone()))?
-        .into_iter()
-        .map(resource_descriptor_json)
-        .collect::<Vec<_>>();
+    let resources =
+        match evaluate_active_plan_resources_list(FsWorkspaceProbe::new(config.root.clone())) {
+            Ok(resources) => resources
+                .into_iter()
+                .map(resource_descriptor_json)
+                .collect::<Vec<_>>(),
+            Err(VibeError::WorkspaceUnreadable(message)) => {
+                return Ok(json_rpc_error(id, -32000, message, None));
+            }
+            Err(error) => return Err(error),
+        };
     Ok(json_rpc_success(
         id,
         serialize_protocol_result(serde_json::json!({ "resources": resources }))?,
@@ -579,10 +600,19 @@ fn handle_resources_read(
         Ok(params) => params,
         Err(response) => return Ok(*response),
     };
-    let read = evaluate_active_plan_resource_read(
+    let read = match evaluate_active_plan_resource_read(
         FsWorkspaceProbe::new(config.root.clone()),
         &params.uri,
-    )?;
+    ) {
+        Ok(read) => read,
+        Err(VibeError::InvalidArguments(message)) => {
+            return Ok(invalid_params(id, message));
+        }
+        Err(VibeError::WorkspaceUnreadable(message)) => {
+            return Ok(json_rpc_error(id, -32000, message, None));
+        }
+        Err(error) => return Err(error),
+    };
     Ok(json_rpc_success(
         id,
         serialize_protocol_result(resource_content_json(read))?,
@@ -989,7 +1019,7 @@ mod tests {
         assert!(descriptor.read_only);
         assert!(descriptor.idempotent);
         assert!(descriptor.local_only);
-        assert!(descriptor.description.contains("modified-TDD"));
+        assert!(descriptor.description.contains("TDD"));
     }
 
     #[test]
@@ -1116,6 +1146,10 @@ mod tests {
             responses[0]["result"]["capabilities"]["tools"]["listChanged"],
             false
         );
+        assert_eq!(
+            responses[0]["result"]["capabilities"]["resources"]["listChanged"],
+            false
+        );
         assert_eq!(responses[1]["id"], 2);
         assert_eq!(responses[1]["result"]["tools"][0]["name"], STATUS_TOOL_NAME);
         assert_eq!(
@@ -1194,6 +1228,196 @@ mod tests {
             responses[0]["result"]["serverInfo"]["name"],
             "vibe-sentinel"
         );
+    }
+
+    #[test]
+    fn mcp_initialize_advertises_resources_capability() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"init-resources","method":"initialize","params":{}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], "init-resources");
+        assert_eq!(
+            responses[0]["result"]["capabilities"]["resources"]["listChanged"],
+            false
+        );
+    }
+
+    #[test]
+    fn mcp_resources_list_returns_active_plan_resources() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"resources-list","method":"resources/list"}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        let resources = responses[0]["result"]["resources"]
+            .as_array()
+            .expect("resources");
+        assert_eq!(responses[0]["id"], "resources-list");
+        assert_eq!(resources.len(), 1);
+        assert_eq!(
+            resources[0]["uri"],
+            "vibe-sentinel://active-plans/test-plan.md"
+        );
+        assert_eq!(resources[0]["name"], "test-plan.md");
+        assert_eq!(resources[0]["mimeType"], "text/markdown");
+    }
+
+    #[test]
+    fn mcp_resources_list_returns_empty_when_idle() {
+        let workspace = TestWorkspace::new_without_active_plan();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"resources-idle","method":"resources/list"}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], "resources-idle");
+        assert!(responses[0]["result"]["resources"]
+            .as_array()
+            .expect("resources")
+            .is_empty());
+    }
+
+    #[test]
+    fn mcp_resources_read_returns_markdown_contents() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"resources-read","method":"resources/read","params":{"uri":"vibe-sentinel://active-plans/test-plan.md"}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        let content = &responses[0]["result"]["contents"][0];
+        assert_eq!(responses[0]["id"], "resources-read");
+        assert_eq!(content["uri"], "vibe-sentinel://active-plans/test-plan.md");
+        assert_eq!(content["mimeType"], "text/markdown");
+        assert!(content["text"]
+            .as_str()
+            .expect("text")
+            .contains("# Execution Plan: Example"));
+    }
+
+    #[test]
+    fn mcp_resources_read_rejects_invalid_params() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"bad-resource","method":"resources/read","params":{"uri":true}}"#,
+            r#"{"jsonrpc":"2.0","id":"good-resource","method":"resources/read","params":{"uri":"vibe-sentinel://active-plans/test-plan.md"}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses.len(), 2);
+        assert_eq!(responses[0]["id"], "bad-resource");
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert_eq!(responses[1]["id"], "good-resource");
+        assert!(responses[1]["result"]["contents"][0]["text"]
+            .as_str()
+            .expect("text")
+            .contains("# Execution Plan: Example"));
+    }
+
+    #[test]
+    fn mcp_resources_read_rejects_unknown_uri_without_aborting() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"missing-resource","method":"resources/read","params":{"uri":"vibe-sentinel://active-plans/missing.md"}}"#,
+            r#"{"jsonrpc":"2.0","id":"status-after-resource-error","method":"tools/call","params":{"name":"vibe_sentinel_status","arguments":{}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses.len(), 2);
+        assert_eq!(responses[0]["id"], "missing-resource");
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert_eq!(responses[1]["id"], "status-after-resource-error");
+        assert_eq!(responses[1]["result"]["isError"], false);
+    }
+
+    #[test]
+    fn mcp_resources_list_maps_workspace_errors_without_aborting() {
+        let workspace = TestWorkspace::new_with_unreadable_active_plan();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"resources-error","method":"resources/list"}"#,
+            r#"{"jsonrpc":"2.0","id":"status-after-resources-error","method":"tools/call","params":{"name":"vibe_sentinel_status","arguments":{}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses.len(), 2);
+        assert_eq!(responses[0]["id"], "resources-error");
+        assert_eq!(responses[0]["error"]["code"], -32000);
+        assert_eq!(responses[1]["id"], "status-after-resources-error");
+        assert_eq!(responses[1]["result"]["isError"], true);
     }
 
     #[test]
@@ -1738,6 +1962,14 @@ mod tests {
         fn new() -> Self {
             let root = unique_test_root();
             write_ready_workspace(&root);
+            Self { root }
+        }
+
+        fn new_without_active_plan() -> Self {
+            let root = unique_test_root();
+            write_ready_workspace(&root);
+            std::fs::remove_file(root.join("docs/exec-plans/active/test-plan.md"))
+                .expect("remove active plan");
             Self { root }
         }
 

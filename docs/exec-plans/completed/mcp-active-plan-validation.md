@@ -12,7 +12,7 @@
 Implement the next MCP execution slice for `vibe-sentinel`: a local, read-only
 active-plan validation tool named `vibe_sentinel_validate_active_plans`. The
 tool validates active execution plans for implementation readiness using narrow
-semantic modified-TDD checks in the application core, then exposes structured
+semantic TDD checks in the application core, then exposes structured
 results through the existing local stdio MCP server.
 
 ## Scope
@@ -115,7 +115,7 @@ results through the existing local stdio MCP server.
   active-plan listing and file-reading seams. The existing MCP protocol adapter
   can be extended with a small multi-tool dispatcher while keeping validation
   logic in the application core. Stale docs were found in the MCP app-spec
-  index, MCP status spec wording, completed-plan README, and modified-TDD
+  index, MCP status spec wording, completed-plan README, and TDD
   terminology in harness docs.
 
 ### Reviewed Plan

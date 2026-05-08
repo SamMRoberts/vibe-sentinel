@@ -15,6 +15,10 @@
 - For no-argument MCP tools, fixture coverage should include omitted arguments,
   empty-object arguments, non-object arguments, unexpected argument properties,
   and malformed `tools/call` envelopes that must not abort the stdio session.
+- For local MCP active-plan resources, fixture coverage should include
+  `initialize` capability metadata, `resources/list`, `resources/read`, empty
+  active-plan state, malformed resource params, unknown URIs, workspace read
+  failures, and session continuity after protocol errors.
 - Keep execution-plan validation logs current after each skeleton unit is implemented.
 
 ## Reporting

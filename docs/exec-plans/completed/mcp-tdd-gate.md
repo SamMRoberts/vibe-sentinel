@@ -10,7 +10,7 @@
 ## Summary
 
 Add a read-only local MCP tool, `vibe_sentinel_tdd_gate`, that lets coding
-agents ask whether a proposed next modified-TDD workflow transition is currently
+agents ask whether a proposed next TDD workflow transition is currently
 allowed for the active execution plans. The tool must preserve existing MCP
 transport behavior, keep protocol handling thin, and reuse application-core plan
 validation semantics.

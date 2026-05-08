@@ -2,7 +2,7 @@
 
 ## Status
 
-- State: active
+- State: completed
 - Owner: coding agent
 - Created: 2026-05-07
 - Last updated: 2026-05-07
@@ -144,50 +144,75 @@ module mcp
 
 ### Mock Test Checklist
 
-- [ ] `active_plan_resources_list_sorted_active_markdown_files` covers core resource discovery using `FakeWorkspaceProbe`.
-- [ ] `active_plan_resources_read_known_resource` covers core markdown reading using `FakeWorkspaceProbe`.
-- [ ] `active_plan_resources_reject_unknown_uri` covers core URI allowlisting.
-- [ ] `mcp_initialize_advertises_resources_capability` covers initialize JSON-RPC fixture behavior.
-- [ ] `mcp_resources_list_returns_active_plan_resources` covers resource listing fixture behavior.
-- [ ] `mcp_resources_list_returns_empty_when_idle` covers idle resource listing.
-- [ ] `mcp_resources_read_returns_markdown_contents` covers successful resource reads.
-- [ ] `mcp_resources_read_rejects_invalid_params` covers malformed params and non-string URIs.
-- [ ] `mcp_resources_read_rejects_unknown_uri_without_aborting` covers deterministic error mapping and session continuity.
-- [ ] `mcp_existing_tools_still_list_and_call` covers existing tool regression behavior.
+- [x] `active_plan_resources_list_sorted_active_markdown_files` covers core resource discovery using `FakeWorkspaceProbe`.
+- [x] `active_plan_resources_read_known_resource` covers core markdown reading using `FakeWorkspaceProbe`.
+- [x] `active_plan_resources_reject_unknown_uri` covers core URI allowlisting.
+- [x] `mcp_initialize_advertises_resources_capability` covers initialize JSON-RPC fixture behavior.
+- [x] `mcp_resources_list_returns_active_plan_resources` covers resource listing fixture behavior.
+- [x] `mcp_resources_list_returns_empty_when_idle` covers idle resource listing.
+- [x] `mcp_resources_read_returns_markdown_contents` covers successful resource reads.
+- [x] `mcp_resources_read_rejects_invalid_params` covers malformed params and non-string URIs.
+- [x] `mcp_resources_read_rejects_unknown_uri_without_aborting` covers deterministic error mapping and session continuity.
+- [x] `mcp_existing_tools_still_list_and_call` covers existing tool regression behavior through existing status/tool list fixtures.
 
 ### Implementation Checklist
 
-- [ ] `domain::ActivePlanResource` and `domain::ActivePlanResourceRead` filled in.
-- Validation after this unit:
-- [ ] `core::ActivePlanResourceService::list_resources` and helper formatting filled in.
-- Validation after this unit:
-- [ ] `core::ActivePlanResourceService::read_resource` and URI allowlisting filled in.
-- Validation after this unit:
-- [ ] MCP initialize resources capability filled in.
-- Validation after this unit:
-- [ ] MCP `resources/list` handler filled in.
-- Validation after this unit:
-- [ ] MCP `resources/read` params, handler, and error mapping filled in.
-- Validation after this unit:
-- [ ] Documentation updates filled in.
-- Validation after this unit:
+- [x] `domain::ActivePlanResource` and `domain::ActivePlanResourceRead` filled in.
+- Validation after this unit: `cargo test active_plan_resources_list_sorted_active_markdown_files` passed after resource metadata was exercised by core listing.
+- [x] `core::ActivePlanResourceService::list_resources` and helper formatting filled in.
+- Validation after this unit: `cargo test active_plan_resources_list_sorted_active_markdown_files` passed.
+- [x] `core::ActivePlanResourceService::read_resource` and URI allowlisting filled in.
+- Validation after this unit: `cargo test active_plan_resources` passed after rerunning with Cargo's single-filter syntax; an earlier two-filter command failed with Cargo usage error.
+- [x] MCP initialize resources capability filled in.
+- Validation after this unit: `cargo test active_plan_resources` passed and existing initialize fixture checks resources capability.
+- [x] MCP `resources/list` handler filled in.
+- Validation after this unit: `cargo test active_plan_resources` passed.
+- [x] MCP `resources/read` params, handler, and error mapping filled in.
+- Validation after this unit: `cargo test mcp_resources` passed for 5 resource fixture tests.
+- [x] Documentation updates filled in.
+- Validation after this unit: documentation updates completed; full validation pending.
 
 ### Validation Log
 
 - 2026-05-07: plan created; validation pending.
 - 2026-05-07: `python3 scripts/validate_tdd_workflow.py docs/exec-plans/active/mcp-active-plan-resources.md` passed.
 - 2026-05-07: skeleton domain, core, and MCP resource units added; skeleton validation pending.
+- 2026-05-07: `cargo test active_plan_resource` passed after skeletons compiled; 0 tests matched before mock tests were added.
+- 2026-05-07: active-plan resource core and MCP fixture tests added; red/green validation pending.
+- 2026-05-07: `cargo test active_plan_resources` failed as expected against placeholders: resource list returned 0 resources and known resource reads were rejected.
+- 2026-05-07: `cargo test active_plan_resources_list_sorted_active_markdown_files` passed after filling core resource listing and metadata helpers.
+- 2026-05-07: `cargo test active_plan_resources_read_known_resource active_plan_resources_reject_unknown_uri` failed with Cargo usage error because Cargo accepts a single test-name filter.
+- 2026-05-07: `cargo test active_plan_resources` passed after filling core resource read behavior; 4 tests passed.
+- 2026-05-07: `cargo test mcp_resources` failed as expected before filling `resources/read` params and JSON-RPC error mapping; 3 passed, 2 failed.
+- 2026-05-07: `cargo test mcp_resources` passed after filling `resources/read` params and error mapping; 5 tests passed.
+- 2026-05-07: `cargo test mcp_resources` passed after adding workspace-error fixture coverage; 6 tests passed.
+- 2026-05-07: README, tooling, observability, app-spec status, and app-spec index docs updated for active-plan resources.
+- 2026-05-07: `cargo fmt --check` failed with formatting diffs in `src/mcp.rs`.
+- 2026-05-07: `cargo fmt` completed.
+- 2026-05-07: `cargo fmt --check` passed after formatting.
+- 2026-05-07: `cargo test mcp::tests` passed: 39 MCP tests.
+- 2026-05-07: `cargo clippy --all-targets --all-features -- -D warnings` passed.
+- 2026-05-07: `cargo test --all` passed: 77 unit tests, 2 CLI integration tests, 2 TUI integration tests, and doc tests.
+- 2026-05-07: `cargo build --all-targets` passed.
+- 2026-05-07: `python3 scripts/validate_tdd_workflow.py docs/exec-plans/active/mcp-active-plan-resources.md` passed.
+- 2026-05-07: `python3 scripts/validate_tdd_workflow.py` passed for 2 file(s).
+- 2026-05-07: `git --no-pager diff --check` passed.
+- 2026-05-07: `python3 /Users/samroberts/plugins/agentic-coding-harness/scripts/validate_harness.py` failed in sandbox with `Operation not permitted` when opening the plugin script.
+- 2026-05-07: `python3 /Users/samroberts/plugins/agentic-coding-harness/scripts/validate_harness.py` passed unsandboxed: 0 failures, 0 warnings.
+- 2026-05-07: subprocess MCP smoke against `target/debug/vibe-sentinel mcp serve` passed for `initialize`, `resources/list`, `resources/read`, and `vibe_sentinel_status`; resources and tools capabilities advertised `listChanged: false`, one active-plan resource was listed/read, and status returned `ready: true`.
+- 2026-05-07: wording normalized to TDD per user direction; `cargo test tdd_gate_tool_descriptor_is_read_only_idempotent_and_local` and plan validation passed.
+- 2026-05-07: plan archived to `docs/exec-plans/completed/mcp-active-plan-resources.md`; final `cargo fmt --check`, `cargo test mcp::tests`, `python3 scripts/validate_tdd_workflow.py`, explicit completed-plan validation, `git --no-pager diff --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all`, `cargo build --all-targets`, and unsandboxed harness validation passed.
 
 ### Review Notes
 
-- Diff review: pending.
-- Risks: MCP resource capability shape may need adjustment if a client expects a different resources payload; keep fixture coverage strict and run a local subprocess smoke when possible.
+- Diff review: completed after formatting, lint, full tests, build, TDD validators, harness validation, diff whitespace check, and subprocess MCP smoke.
+- Risks: MCP resource capability shape may need adjustment if a client expects a different resources payload; fixture coverage and subprocess smoke exercise the local stdio contract.
 - Follow-ups: Python TDD validator semantic hardening and deterministic TUI lifecycle smoke remain separate tech-debt slices.
 
 ## Intended changes
 
 - `docs/app-specs/mcp-active-plan-resources-slice.md`: define active-plan resource behavior and acceptance criteria.
-- `docs/app-specs/index.md`: link the new planned slice.
+- `docs/app-specs/index.md`: link the shipped slice.
 - `docs/exec-plans/active/mcp-active-plan-resources.md`: track this TDD workflow.
 - `src/domain.rs`: add active-plan resource domain data types.
 - `src/core.rs`: add active-plan resource listing, URI allowlisting, and read behavior against `WorkspaceProbe`.

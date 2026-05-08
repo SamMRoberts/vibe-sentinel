@@ -3,7 +3,7 @@
 ## Purpose
 
 Add a local read-only MCP tool that tells coding agents whether a proposed next
-modified-TDD workflow step is currently allowed for the active execution plans.
+TDD workflow step is currently allowed for the active execution plans.
 
 ## Users
 

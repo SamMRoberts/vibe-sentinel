@@ -40,6 +40,13 @@ The MCP server exposes read-only, idempotent local tools:
 	`vibe-sentinel status --json`.
 - `vibe_sentinel_validate_active_plans`: implementation-readiness validation for
 	active execution plans under the TDD workflow.
+- `vibe_sentinel_tdd_gate`: workflow transition checks for the TDD
+	process.
+
+It also exposes read-only local resources for active execution plans:
+
+- `vibe-sentinel://active-plans/<file-name>`: markdown content for active
+	execution plans in `docs/exec-plans/active/`.
 
 ## Validation
 
