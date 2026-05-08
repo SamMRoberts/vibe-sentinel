@@ -3,7 +3,7 @@
 ## Scope
 
 - This file owns the repo-wide reliability expectations and operational rules.
-- Use `docs/quality/concurrency.md`, `docs/quality/errors.md`, `docs/quality/observability.md`, and `docs/quality/surfaces/` for implementation-level guidance that satisfies these expectations.
+- Use `docs/observability.md`, `docs/quality/concurrency.md`, `docs/quality/errors.md`, and `docs/quality/surfaces/` for implementation-level guidance that satisfies these expectations.
 
 ## Reliability expectations
 

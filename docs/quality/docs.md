@@ -11,7 +11,7 @@
 
 - Put durable engineering rules under `docs/quality/`, not in `AGENTS.md`.
 - Put architecture decisions in `docs/architecture.md` or a design doc when they need more than a brief rule.
-- Put broad policy in `docs/security.md` or `docs/reliability.md`; keep local implementation advice in supporting guides.
+- Put security policy and security implementation guidance in `docs/security.md`; keep other local implementation advice in supporting guides.
 - Prefer repo-local references over relying on chat history or undocumented conventions.
 
 ## Writing style

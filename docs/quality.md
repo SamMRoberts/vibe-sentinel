@@ -71,7 +71,5 @@
 | Documentation | `docs/quality/docs.md` |
 | Errors | `docs/quality/errors.md` |
 | Fixtures | `docs/quality/fixtures.md` |
-| Observability | `docs/quality/observability.md` |
-| Security | `docs/quality/security.md` |
 | Storage | `docs/quality/storage.md` |
 | Testing | `docs/quality/testing.md` |
