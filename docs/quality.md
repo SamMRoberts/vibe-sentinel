@@ -20,4 +20,19 @@
 
 ## Language-specific guides
 
-- `docs/quality/languages/cs.md`: C# programming best practices.
+| Language | Guide |
+| --- | --- |
+| C | `docs/quality/languages/c.md` |
+| C++ | `docs/quality/languages/cpp.md` |
+| C# | `docs/quality/languages/cs.md` |
+| Go | `docs/quality/languages/go.md` |
+| HTML | `docs/quality/languages/html.md` |
+| Java | `docs/quality/languages/java.md` |
+| JavaScript | `docs/quality/languages/javascript.md` |
+| PHP | `docs/quality/languages/php.md` |
+| Python | `docs/quality/languages/python.md` |
+| R | `docs/quality/languages/r.md` |
+| Rust | `docs/quality/languages/rust.md` |
+| Shell | `docs/quality/languages/shell.md` |
+| Swift | `docs/quality/languages/swift.md` |
+| TypeScript | `docs/quality/languages/typescript.md` |
