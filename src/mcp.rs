@@ -1,0 +1,2060 @@
+use std::io::{BufRead, Write};
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::adapters::fs::FsWorkspaceProbe;
+use crate::core::{
+    ActivePlanResourceService, PlanValidationService, StatusService, TddGateService,
+};
+use crate::domain::{
+    ActivePlanResource, ActivePlanResourceRead, PlanValidationReport, StatusCheck, StatusReport,
+    TddGateAction, TddGateReport, TddWorkflowPhase, ValidationIssue, VibeError,
+};
+use crate::ports::WorkspaceProbe;
+
+pub const STATUS_TOOL_NAME: &str = "vibe_sentinel_status";
+pub const ACTIVE_PLAN_VALIDATION_TOOL_NAME: &str = "vibe_sentinel_validate_active_plans";
+pub const TDD_GATE_TOOL_NAME: &str = "vibe_sentinel_tdd_gate";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpServerConfig {
+    pub root: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpToolDescriptor {
+    pub name: String,
+    pub description: String,
+    pub read_only: bool,
+    pub idempotent: bool,
+    pub local_only: bool,
+    input_schema: McpToolInputSchema,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum McpToolInputSchema {
+    NoArguments,
+    TddGate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum McpStatusRequest {
+    Status,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum McpTool {
+    Status,
+    ActivePlanValidation,
+    TddGate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct McpStatusResponse {
+    pub project_name: String,
+    pub ready: bool,
+    pub checks: Vec<StatusCheck>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct McpActivePlanValidationResponse {
+    pub project_name: String,
+    pub ready: bool,
+    pub plans: Vec<PlanValidationReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct McpTddGateResponse {
+    pub project_name: String,
+    pub allowed: bool,
+    pub current_phase: TddWorkflowPhase,
+    pub blocking_issues: Vec<ValidationIssue>,
+    pub warnings: Vec<ValidationIssue>,
+    pub next_allowed_actions: Vec<TddGateAction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum McpErrorCode {
+    InvalidRequest,
+    WorkspaceUnreadable,
+    InternalError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct McpErrorResponse {
+    pub code: McpErrorCode,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+struct JsonRpcRequest {
+    jsonrpc: String,
+    id: Option<Value>,
+    method: String,
+    params: Option<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct JsonRpcResponse {
+    jsonrpc: String,
+    id: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<JsonRpcError>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct JsonRpcError {
+    code: i64,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ToolCallParams {
+    name: String,
+    arguments: Option<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResourceReadParams {
+    uri: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NoArguments {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TddGateArguments {
+    next_action: TddGateAction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum McpToolArguments {
+    None,
+    TddGate(TddGateArguments),
+}
+
+type ToolCallValidationResult<T> = Result<T, Box<JsonRpcResponse>>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StdioFraming {
+    ContentLength,
+    Newline,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StdioMessage {
+    payload: String,
+    framing: StdioFraming,
+}
+
+struct StdioServer<R: BufRead, W: Write> {
+    config: McpServerConfig,
+    reader: R,
+    writer: W,
+}
+
+impl<R: BufRead, W: Write> StdioServer<R, W> {
+    fn new(config: McpServerConfig, reader: R, writer: W) -> Self {
+        Self {
+            config,
+            reader,
+            writer,
+        }
+    }
+
+    fn run(&mut self) -> Result<(), VibeError> {
+        while let Some(message) = read_stdio_message(&mut self.reader)? {
+            let response = match serde_json::from_str::<JsonRpcRequest>(&message.payload) {
+                Ok(request) => handle_json_rpc_request(&self.config, request)?,
+                Err(error) => Some(json_rpc_error(
+                    None,
+                    -32700,
+                    format!("invalid JSON-RPC payload: {error}"),
+                    None,
+                )),
+            };
+
+            if let Some(response) = response {
+                let payload = serde_json::to_string(&response).map_err(|error| {
+                    VibeError::StatusEvaluationFailed(format!(
+                        "could not serialize MCP response: {error}"
+                    ))
+                })?;
+                write_stdio_message(&mut self.writer, &payload, message.framing)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+pub fn status_tool_descriptor() -> McpToolDescriptor {
+    McpToolDescriptor {
+        name: STATUS_TOOL_NAME.to_string(),
+        description: "Read local vibe-sentinel harness readiness status".to_string(),
+        read_only: true,
+        idempotent: true,
+        local_only: true,
+        input_schema: McpToolInputSchema::NoArguments,
+    }
+}
+
+pub fn active_plan_validation_tool_descriptor() -> McpToolDescriptor {
+    McpToolDescriptor {
+        name: ACTIVE_PLAN_VALIDATION_TOOL_NAME.to_string(),
+        description: "Validate active vibe-sentinel execution plans for implementation readiness"
+            .to_string(),
+        read_only: true,
+        idempotent: true,
+        local_only: true,
+        input_schema: McpToolInputSchema::NoArguments,
+    }
+}
+
+pub fn tdd_gate_tool_descriptor() -> McpToolDescriptor {
+    McpToolDescriptor {
+        name: TDD_GATE_TOOL_NAME.to_string(),
+        description: "Check whether a proposed TDD workflow transition is allowed".to_string(),
+        read_only: true,
+        idempotent: true,
+        local_only: true,
+        input_schema: McpToolInputSchema::TddGate,
+    }
+}
+
+fn tool_descriptors() -> Vec<McpToolDescriptor> {
+    vec![
+        status_tool_descriptor(),
+        active_plan_validation_tool_descriptor(),
+        tdd_gate_tool_descriptor(),
+    ]
+}
+
+pub fn evaluate_status_tool<P: WorkspaceProbe>(probe: P) -> Result<McpStatusResponse, VibeError> {
+    StatusService::new(probe)
+        .evaluate()
+        .map(response_from_report)
+}
+
+pub fn response_from_report(report: StatusReport) -> McpStatusResponse {
+    let ready = report.is_ready();
+    McpStatusResponse {
+        project_name: report.project_name,
+        ready,
+        checks: report.checks,
+    }
+}
+
+pub fn evaluate_active_plan_validation_tool<P: WorkspaceProbe>(
+    probe: P,
+) -> Result<McpActivePlanValidationResponse, VibeError> {
+    PlanValidationService::new(probe)
+        .evaluate_active_plans()
+        .map(active_plan_validation_response_from_report)
+}
+
+pub fn active_plan_validation_response_from_report(
+    report: crate::domain::ActivePlansValidationReport,
+) -> McpActivePlanValidationResponse {
+    McpActivePlanValidationResponse {
+        project_name: report.project_name,
+        ready: report.ready,
+        plans: report.plans,
+    }
+}
+
+pub fn evaluate_tdd_gate_tool<P: WorkspaceProbe>(
+    probe: P,
+    next_action: TddGateAction,
+) -> Result<McpTddGateResponse, VibeError> {
+    TddGateService::new(probe)
+        .evaluate(next_action)
+        .map(tdd_gate_response_from_report)
+}
+
+pub fn evaluate_active_plan_resources_list<P: WorkspaceProbe>(
+    probe: P,
+) -> Result<Vec<ActivePlanResource>, VibeError> {
+    ActivePlanResourceService::new(probe).list_resources()
+}
+
+pub fn evaluate_active_plan_resource_read<P: WorkspaceProbe>(
+    probe: P,
+    uri: &str,
+) -> Result<ActivePlanResourceRead, VibeError> {
+    ActivePlanResourceService::new(probe).read_resource(uri)
+}
+
+pub fn tdd_gate_response_from_report(report: TddGateReport) -> McpTddGateResponse {
+    McpTddGateResponse {
+        project_name: report.project_name,
+        allowed: report.allowed,
+        current_phase: report.current_phase,
+        blocking_issues: report.blocking_issues,
+        warnings: report.warnings,
+        next_allowed_actions: report.next_allowed_actions,
+    }
+}
+
+pub fn map_error(error: VibeError) -> McpErrorResponse {
+    let code = match error {
+        VibeError::InvalidArguments(_) => McpErrorCode::InvalidRequest,
+        VibeError::WorkspaceUnreadable(_) => McpErrorCode::WorkspaceUnreadable,
+        VibeError::StatusEvaluationFailed(_) => McpErrorCode::InternalError,
+    };
+
+    McpErrorResponse {
+        code,
+        message: error.to_string(),
+    }
+}
+
+pub fn run_stdio_server(config: McpServerConfig) -> Result<(), VibeError> {
+    let stdin = std::io::stdin();
+    let stdout = std::io::stdout();
+    run_stdio_session(config, stdin.lock(), stdout.lock())
+}
+
+fn run_stdio_session<R: BufRead, W: Write>(
+    config: McpServerConfig,
+    reader: R,
+    writer: W,
+) -> Result<(), VibeError> {
+    StdioServer::new(config, reader, writer).run()
+}
+
+fn read_stdio_message<R: BufRead>(reader: &mut R) -> Result<Option<StdioMessage>, VibeError> {
+    let mut first_line = String::new();
+    let bytes_read = reader.read_line(&mut first_line).map_err(|error| {
+        VibeError::StatusEvaluationFailed(format!("could not read MCP message: {error}"))
+    })?;
+    if bytes_read == 0 {
+        return Ok(None);
+    }
+
+    let first = first_line.trim_end_matches(['\r', '\n']);
+    if first.is_empty() {
+        return Err(VibeError::InvalidArguments(
+            "empty MCP stdio message".to_string(),
+        ));
+    }
+
+    if is_content_header(first) {
+        let payload = read_content_length_message_after_header(reader, first)?;
+        return Ok(Some(StdioMessage {
+            payload,
+            framing: StdioFraming::ContentLength,
+        }));
+    }
+
+    Ok(Some(StdioMessage {
+        payload: first.to_string(),
+        framing: StdioFraming::Newline,
+    }))
+}
+
+#[cfg(test)]
+fn read_content_length_message<R: BufRead>(reader: &mut R) -> Result<Option<String>, VibeError> {
+    let mut first_line = String::new();
+    let bytes_read = reader.read_line(&mut first_line).map_err(|error| {
+        VibeError::StatusEvaluationFailed(format!("could not read MCP header: {error}"))
+    })?;
+    if bytes_read == 0 {
+        return Ok(None);
+    }
+
+    let first = first_line.trim_end_matches(['\r', '\n']);
+    read_content_length_message_after_header(reader, first).map(Some)
+}
+
+fn read_content_length_message_after_header<R: BufRead>(
+    reader: &mut R,
+    first_header: &str,
+) -> Result<String, VibeError> {
+    let mut content_length = content_length_from_header(first_header)?;
+
+    loop {
+        let mut line = String::new();
+        let bytes_read = reader.read_line(&mut line).map_err(|error| {
+            VibeError::StatusEvaluationFailed(format!("could not read MCP header: {error}"))
+        })?;
+        if bytes_read == 0 {
+            return Err(VibeError::InvalidArguments(
+                "unexpected end of MCP headers".to_string(),
+            ));
+        }
+
+        let header = line.trim_end_matches(['\r', '\n']);
+        if header.is_empty() {
+            break;
+        }
+
+        if let Some(length) = content_length_from_header(header)? {
+            content_length = Some(length);
+        }
+    }
+
+    let length = content_length.ok_or_else(|| {
+        VibeError::InvalidArguments("missing MCP Content-Length header".to_string())
+    })?;
+    let mut body = Vec::with_capacity(length);
+    while body.len() < length {
+        let buffer = reader.fill_buf().map_err(|error| {
+            VibeError::InvalidArguments(format!("could not read MCP message body: {error}"))
+        })?;
+        if buffer.is_empty() {
+            return Err(VibeError::InvalidArguments(
+                "could not read MCP message body: unexpected end of stream".to_string(),
+            ));
+        }
+
+        let remaining = length - body.len();
+        let chunk_len = remaining.min(buffer.len());
+        body.extend_from_slice(&buffer[..chunk_len]);
+        reader.consume(chunk_len);
+    }
+
+    String::from_utf8(body).map_err(|error| {
+        VibeError::InvalidArguments(format!("MCP message body is not UTF-8: {error}"))
+    })
+}
+
+fn is_content_header(line: &str) -> bool {
+    line.split_once(':')
+        .map(|(name, _)| {
+            name.eq_ignore_ascii_case("Content-Length") || name.eq_ignore_ascii_case("Content-Type")
+        })
+        .unwrap_or(false)
+}
+
+fn content_length_from_header(header: &str) -> Result<Option<usize>, VibeError> {
+    if let Some((name, value)) = header.split_once(':') {
+        if name.eq_ignore_ascii_case("Content-Length") {
+            let length = value.trim().parse::<usize>().map_err(|error| {
+                VibeError::InvalidArguments(format!("invalid MCP Content-Length header: {error}"))
+            })?;
+            return Ok(Some(length));
+        }
+    }
+
+    Ok(None)
+}
+
+fn write_stdio_message<W: Write>(
+    writer: &mut W,
+    payload: &str,
+    framing: StdioFraming,
+) -> Result<(), VibeError> {
+    match framing {
+        StdioFraming::ContentLength => write_content_length_message(writer, payload),
+        StdioFraming::Newline => write_newline_message(writer, payload),
+    }
+}
+
+fn write_content_length_message<W: Write>(writer: &mut W, payload: &str) -> Result<(), VibeError> {
+    write!(
+        writer,
+        "Content-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
+        payload.len(),
+        payload
+    )
+    .map_err(|error| {
+        VibeError::StatusEvaluationFailed(format!("could not write MCP message: {error}"))
+    })?;
+    writer.flush().map_err(|error| {
+        VibeError::StatusEvaluationFailed(format!("could not flush MCP message: {error}"))
+    })
+}
+
+fn write_newline_message<W: Write>(writer: &mut W, payload: &str) -> Result<(), VibeError> {
+    writeln!(writer, "{payload}").map_err(|error| {
+        VibeError::StatusEvaluationFailed(format!("could not write MCP message: {error}"))
+    })?;
+    writer.flush().map_err(|error| {
+        VibeError::StatusEvaluationFailed(format!("could not flush MCP message: {error}"))
+    })
+}
+
+fn handle_json_rpc_request(
+    config: &McpServerConfig,
+    request: JsonRpcRequest,
+) -> Result<Option<JsonRpcResponse>, VibeError> {
+    if request.jsonrpc != "2.0" {
+        return Ok(Some(json_rpc_error(
+            request.id,
+            -32600,
+            "invalid JSON-RPC version: expected 2.0",
+            None,
+        )));
+    }
+
+    match request.method.as_str() {
+        "initialize" => handle_initialize(request.id, request.params).map(Some),
+        "notifications/initialized" => Ok(None),
+        "tools/list" => handle_tools_list(request.id).map(Some),
+        "tools/call" => handle_tools_call(config, request.id, request.params).map(Some),
+        "resources/list" => handle_resources_list(config, request.id).map(Some),
+        "resources/read" => handle_resources_read(config, request.id, request.params).map(Some),
+        method => Ok(Some(json_rpc_error(
+            request.id,
+            -32601,
+            format!("unsupported MCP method `{method}`"),
+            None,
+        ))),
+    }
+}
+
+fn handle_initialize(
+    id: Option<Value>,
+    params: Option<Value>,
+) -> Result<JsonRpcResponse, VibeError> {
+    let protocol_version = initialize_protocol_version(params.as_ref());
+    Ok(json_rpc_success(
+        id,
+        serialize_protocol_result(serde_json::json!({
+            "protocolVersion": protocol_version,
+            "capabilities": {
+                "tools": {
+                    "listChanged": false
+                },
+                "resources": {
+                    "listChanged": false
+                }
+            },
+            "serverInfo": {
+                "name": "vibe-sentinel",
+                "version": env!("CARGO_PKG_VERSION")
+            }
+        }))?,
+    ))
+}
+
+fn initialize_protocol_version(params: Option<&Value>) -> String {
+    params
+        .and_then(|params| params.get("protocolVersion"))
+        .and_then(Value::as_str)
+        .unwrap_or("2025-06-18")
+        .to_string()
+}
+
+fn parse_resource_read_params(
+    id: Option<Value>,
+    params: Option<Value>,
+) -> ToolCallValidationResult<ResourceReadParams> {
+    let params = params
+        .and_then(|value| value.as_object().cloned())
+        .ok_or_else(|| {
+            Box::new(invalid_params(
+                id.clone(),
+                "MCP resources/read requires object params",
+            ))
+        })?;
+    let uri = params.get("uri").and_then(Value::as_str).ok_or_else(|| {
+        Box::new(invalid_params(
+            id.clone(),
+            "MCP resources/read requires a string uri",
+        ))
+    })?;
+
+    Ok(ResourceReadParams {
+        uri: uri.to_string(),
+    })
+}
+
+fn handle_resources_list(
+    config: &McpServerConfig,
+    id: Option<Value>,
+) -> Result<JsonRpcResponse, VibeError> {
+    let resources =
+        match evaluate_active_plan_resources_list(FsWorkspaceProbe::new(config.root.clone())) {
+            Ok(resources) => resources
+                .into_iter()
+                .map(resource_descriptor_json)
+                .collect::<Vec<_>>(),
+            Err(VibeError::WorkspaceUnreadable(message)) => {
+                return Ok(json_rpc_error(id, -32000, message, None));
+            }
+            Err(error) => return Err(error),
+        };
+    Ok(json_rpc_success(
+        id,
+        serialize_protocol_result(serde_json::json!({ "resources": resources }))?,
+    ))
+}
+
+fn handle_resources_read(
+    config: &McpServerConfig,
+    id: Option<Value>,
+    params: Option<Value>,
+) -> Result<JsonRpcResponse, VibeError> {
+    let params = match parse_resource_read_params(id.clone(), params) {
+        Ok(params) => params,
+        Err(response) => return Ok(*response),
+    };
+    let read = match evaluate_active_plan_resource_read(
+        FsWorkspaceProbe::new(config.root.clone()),
+        &params.uri,
+    ) {
+        Ok(read) => read,
+        Err(VibeError::InvalidArguments(message)) => {
+            return Ok(invalid_params(id, message));
+        }
+        Err(VibeError::WorkspaceUnreadable(message)) => {
+            return Ok(json_rpc_error(id, -32000, message, None));
+        }
+        Err(error) => return Err(error),
+    };
+    Ok(json_rpc_success(
+        id,
+        serialize_protocol_result(resource_content_json(read))?,
+    ))
+}
+
+fn resource_descriptor_json(resource: ActivePlanResource) -> Value {
+    serde_json::json!({
+        "uri": resource.uri,
+        "name": resource.name,
+        "mimeType": resource.mime_type
+    })
+}
+
+fn resource_content_json(read: ActivePlanResourceRead) -> Value {
+    serde_json::json!({
+        "contents": [{
+            "uri": read.uri,
+            "mimeType": read.mime_type,
+            "text": read.text
+        }]
+    })
+}
+
+fn handle_tools_list(id: Option<Value>) -> Result<JsonRpcResponse, VibeError> {
+    let tools = tool_descriptors()
+        .into_iter()
+        .map(|descriptor| {
+            serde_json::json!({
+                "name": descriptor.name,
+                "description": descriptor.description,
+                "inputSchema": input_schema_json(descriptor.input_schema),
+                "annotations": {
+                    "readOnlyHint": descriptor.read_only,
+                    "idempotentHint": descriptor.idempotent,
+                    "destructiveHint": false,
+                    "openWorldHint": !descriptor.local_only
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Ok(json_rpc_success(
+        id,
+        serialize_protocol_result(serde_json::json!({
+            "tools": tools
+        }))?,
+    ))
+}
+
+fn input_schema_json(schema: McpToolInputSchema) -> Value {
+    match schema {
+        McpToolInputSchema::NoArguments => serde_json::json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
+        McpToolInputSchema::TddGate => serde_json::json!({
+            "type": "object",
+            "properties": {
+                "next_action": {
+                    "type": "string",
+                    "enum": [
+                        TddGateAction::StartArchitecture.as_str(),
+                        TddGateAction::StartSkeletons.as_str(),
+                        TddGateAction::StartMockTests.as_str(),
+                        TddGateAction::StartImplementation.as_str(),
+                        TddGateAction::CompletePlan.as_str()
+                    ]
+                }
+            },
+            "required": ["next_action"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+fn invalid_params(id: Option<Value>, message: impl Into<String>) -> JsonRpcResponse {
+    json_rpc_error(id, -32602, message, None)
+}
+
+fn parse_tool_call_params(
+    id: Option<Value>,
+    params: Option<Value>,
+) -> ToolCallValidationResult<ToolCallParams> {
+    let params = params
+        .and_then(|value| value.as_object().cloned())
+        .ok_or_else(|| {
+            Box::new(invalid_params(
+                id.clone(),
+                "MCP tools/call requires object params",
+            ))
+        })?;
+    let name = params.get("name").and_then(Value::as_str).ok_or_else(|| {
+        Box::new(invalid_params(
+            id.clone(),
+            "MCP tools/call requires a tool name",
+        ))
+    })?;
+
+    Ok(ToolCallParams {
+        name: name.to_string(),
+        arguments: params.get("arguments").cloned(),
+    })
+}
+
+fn parse_no_arguments(
+    id: Option<Value>,
+    tool_name: &str,
+    arguments: Option<Value>,
+) -> ToolCallValidationResult<NoArguments> {
+    let Some(arguments) = arguments else {
+        return Ok(NoArguments::default());
+    };
+
+    let Some(arguments) = arguments.as_object() else {
+        return Err(Box::new(invalid_params(
+            id,
+            format!("MCP tool `{tool_name}` requires object arguments"),
+        )));
+    };
+
+    if !arguments.is_empty() {
+        return Err(Box::new(invalid_params(
+            id,
+            format!("MCP tool `{tool_name}` does not accept arguments"),
+        )));
+    }
+
+    Ok(NoArguments::default())
+}
+
+fn parse_tdd_gate_arguments(
+    id: Option<Value>,
+    tool_name: &str,
+    arguments: Option<Value>,
+) -> ToolCallValidationResult<TddGateArguments> {
+    let Some(arguments) = arguments else {
+        return Err(Box::new(invalid_params(
+            id,
+            format!("MCP tool `{tool_name}` requires object arguments"),
+        )));
+    };
+
+    if !arguments.is_object() {
+        return Err(Box::new(invalid_params(
+            id,
+            format!("MCP tool `{tool_name}` requires object arguments"),
+        )));
+    }
+
+    serde_json::from_value(arguments).map_err(|error| {
+        Box::new(invalid_params(
+            id,
+            format!("MCP tool `{tool_name}` received invalid arguments: {error}"),
+        ))
+    })
+}
+
+fn validate_tool_call_arguments(
+    id: Option<Value>,
+    tool: McpTool,
+    tool_name: &str,
+    arguments: Option<Value>,
+) -> ToolCallValidationResult<McpToolArguments> {
+    match tool {
+        McpTool::Status | McpTool::ActivePlanValidation => {
+            parse_no_arguments(id, tool_name, arguments).map(|_| McpToolArguments::None)
+        }
+        McpTool::TddGate => {
+            parse_tdd_gate_arguments(id, tool_name, arguments).map(McpToolArguments::TddGate)
+        }
+    }
+}
+
+fn tool_from_name(name: &str) -> Option<McpTool> {
+    match name {
+        STATUS_TOOL_NAME => Some(McpTool::Status),
+        ACTIVE_PLAN_VALIDATION_TOOL_NAME => Some(McpTool::ActivePlanValidation),
+        TDD_GATE_TOOL_NAME => Some(McpTool::TddGate),
+        _ => None,
+    }
+}
+
+fn handle_tools_call(
+    config: &McpServerConfig,
+    id: Option<Value>,
+    params: Option<Value>,
+) -> Result<JsonRpcResponse, VibeError> {
+    let params = match parse_tool_call_params(id.clone(), params) {
+        Ok(params) => params,
+        Err(response) => return Ok(*response),
+    };
+
+    let Some(tool) = tool_from_name(&params.name) else {
+        return Ok(json_rpc_error(
+            id,
+            -32602,
+            format!("unknown MCP tool `{}`", params.name),
+            None,
+        ));
+    };
+
+    let tool_arguments =
+        match validate_tool_call_arguments(id.clone(), tool, &params.name, params.arguments) {
+            Ok(arguments) => arguments,
+            Err(response) => return Ok(*response),
+        };
+
+    let result = match (tool, tool_arguments) {
+        (McpTool::Status, McpToolArguments::None) => handle_status_tool_call(config)?,
+        (McpTool::ActivePlanValidation, McpToolArguments::None) => {
+            handle_active_plan_validation_tool_call(config)?
+        }
+        (McpTool::TddGate, McpToolArguments::TddGate(arguments)) => {
+            handle_tdd_gate_tool_call(config, arguments.next_action)?
+        }
+        _ => unreachable!("validated MCP tool arguments must match tool kind"),
+    };
+
+    Ok(json_rpc_success(id, serialize_protocol_result(result)?))
+}
+
+fn handle_status_tool_call(config: &McpServerConfig) -> Result<Value, VibeError> {
+    Ok(
+        match evaluate_status_tool(FsWorkspaceProbe::new(config.root.clone())) {
+            Ok(response) => serde_json::json!({
+                "content": [{
+                    "type": "text",
+                    "text": serde_json::to_string(&response).map_err(|error| {
+                        VibeError::StatusEvaluationFailed(format!(
+                            "could not serialize MCP status content: {error}"
+                        ))
+                    })?
+                }],
+                "structuredContent": response,
+                "isError": false
+            }),
+            Err(error) => {
+                let response = map_error(error);
+                let message = response.message.clone();
+                serde_json::json!({
+                    "content": [{
+                        "type": "text",
+                        "text": message
+                    }],
+                    "structuredContent": response,
+                    "isError": true
+                })
+            }
+        },
+    )
+}
+
+fn handle_active_plan_validation_tool_call(config: &McpServerConfig) -> Result<Value, VibeError> {
+    Ok(
+        match evaluate_active_plan_validation_tool(FsWorkspaceProbe::new(config.root.clone())) {
+            Ok(response) => serde_json::json!({
+                "content": [{
+                    "type": "text",
+                    "text": serde_json::to_string(&response).map_err(|error| {
+                        VibeError::StatusEvaluationFailed(format!(
+                            "could not serialize MCP active-plan validation content: {error}"
+                        ))
+                    })?
+                }],
+                "structuredContent": response,
+                "isError": false
+            }),
+            Err(error) => {
+                let response = map_error(error);
+                let message = response.message.clone();
+                serde_json::json!({
+                    "content": [{
+                        "type": "text",
+                        "text": message
+                    }],
+                    "structuredContent": response,
+                    "isError": true
+                })
+            }
+        },
+    )
+}
+
+fn handle_tdd_gate_tool_call(
+    config: &McpServerConfig,
+    next_action: TddGateAction,
+) -> Result<Value, VibeError> {
+    Ok(
+        match evaluate_tdd_gate_tool(FsWorkspaceProbe::new(config.root.clone()), next_action) {
+            Ok(response) => serde_json::json!({
+                "content": [{
+                    "type": "text",
+                    "text": serde_json::to_string(&response).map_err(|error| {
+                        VibeError::StatusEvaluationFailed(format!(
+                            "could not serialize MCP TDD gate content: {error}"
+                        ))
+                    })?
+                }],
+                "structuredContent": response,
+                "isError": false
+            }),
+            Err(error) => {
+                let response = map_error(error);
+                let message = response.message.clone();
+                serde_json::json!({
+                    "content": [{
+                        "type": "text",
+                        "text": message
+                    }],
+                    "structuredContent": response,
+                    "isError": true
+                })
+            }
+        },
+    )
+}
+
+fn json_rpc_success(id: Option<Value>, result: Value) -> JsonRpcResponse {
+    JsonRpcResponse {
+        jsonrpc: "2.0".to_string(),
+        id,
+        result: Some(result),
+        error: None,
+    }
+}
+
+fn json_rpc_error(
+    id: Option<Value>,
+    code: i64,
+    message: impl Into<String>,
+    data: Option<Value>,
+) -> JsonRpcResponse {
+    JsonRpcResponse {
+        jsonrpc: "2.0".to_string(),
+        id,
+        result: None,
+        error: Some(JsonRpcError {
+            code,
+            message: message.into(),
+            data,
+        }),
+    }
+}
+
+fn serialize_protocol_result<T: Serialize>(value: T) -> Result<Value, VibeError> {
+    serde_json::to_value(value).map_err(|error| {
+        VibeError::StatusEvaluationFailed(format!(
+            "could not serialize MCP protocol value: {error}"
+        ))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::BufReader;
+    use std::io::{Cursor, Write};
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::{
+        active_plan_validation_tool_descriptor, evaluate_status_tool, map_error,
+        read_content_length_message, run_stdio_session, status_tool_descriptor,
+        tdd_gate_tool_descriptor, write_content_length_message, McpErrorCode, McpServerConfig,
+        ACTIVE_PLAN_VALIDATION_TOOL_NAME, STATUS_TOOL_NAME, TDD_GATE_TOOL_NAME,
+    };
+    use crate::adapters::test_support::FakeWorkspaceProbe;
+    use crate::domain::ReadinessState;
+    use crate::domain::VibeError;
+
+    #[test]
+    fn mcp_skeleton_exposes_status_tool_name() {
+        assert_eq!(STATUS_TOOL_NAME, "vibe_sentinel_status");
+    }
+
+    #[test]
+    fn status_tool_descriptor_is_read_only_idempotent_and_local() {
+        let descriptor = status_tool_descriptor();
+
+        assert_eq!(descriptor.name, STATUS_TOOL_NAME);
+        assert!(descriptor.read_only);
+        assert!(descriptor.idempotent);
+        assert!(descriptor.local_only);
+        assert!(descriptor.description.contains("readiness"));
+    }
+
+    #[test]
+    fn active_plan_validation_tool_descriptor_is_read_only_idempotent_and_local() {
+        let descriptor = active_plan_validation_tool_descriptor();
+
+        assert_eq!(descriptor.name, ACTIVE_PLAN_VALIDATION_TOOL_NAME);
+        assert!(descriptor.read_only);
+        assert!(descriptor.idempotent);
+        assert!(descriptor.local_only);
+        assert!(descriptor.description.contains("execution plans"));
+    }
+
+    #[test]
+    fn tdd_gate_tool_descriptor_is_read_only_idempotent_and_local() {
+        let descriptor = tdd_gate_tool_descriptor();
+
+        assert_eq!(descriptor.name, TDD_GATE_TOOL_NAME);
+        assert!(descriptor.read_only);
+        assert!(descriptor.idempotent);
+        assert!(descriptor.local_only);
+        assert!(descriptor.description.contains("TDD"));
+    }
+
+    #[test]
+    fn status_tool_response_matches_status_report_shape() {
+        let response = evaluate_status_tool(
+            FakeWorkspaceProbe::new()
+                .with_path("AGENTS.md")
+                .with_path("docs/harness/scope.md")
+                .with_path("docs/harness/operating-model.md")
+                .with_path("Cargo.toml")
+                .with_active_plan(true),
+        )
+        .expect("status response");
+
+        assert_eq!(response.project_name, "vibe-sentinel");
+        assert!(response.ready);
+        assert_eq!(response.checks.len(), 3);
+        assert!(response
+            .checks
+            .iter()
+            .all(|check| check.state == ReadinessState::Ready));
+    }
+
+    #[test]
+    fn status_tool_maps_workspace_errors_to_mcp_errors() {
+        let response = map_error(VibeError::WorkspaceUnreadable(
+            "could not read active plan directory".to_string(),
+        ));
+
+        assert_eq!(response.code, McpErrorCode::WorkspaceUnreadable);
+        assert_eq!(response.message, "could not read active plan directory");
+    }
+
+    #[test]
+    fn mcp_stdio_session_exits_cleanly_after_empty_input() {
+        let mut output = Vec::new();
+        let result = run_stdio_session(
+            McpServerConfig {
+                root: PathBuf::from("."),
+            },
+            Cursor::new(Vec::new()),
+            &mut output,
+        );
+
+        assert_eq!(result, Ok(()));
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn content_length_round_trips_json_payload() {
+        let mut output = Vec::new();
+
+        write_content_length_message(&mut output, "{\"jsonrpc\":\"2.0\"}")
+            .expect("write framed payload");
+        let mut input = Cursor::new(output);
+        let payload = read_content_length_message(&mut input).expect("read framed payload");
+
+        assert_eq!(payload, Some("{\"jsonrpc\":\"2.0\"}".to_string()));
+    }
+
+    #[test]
+    fn content_length_round_trips_json_payload_with_bufreader() {
+        let mut output = Vec::new();
+
+        write_content_length_message(&mut output, "{\"jsonrpc\":\"2.0\"}")
+            .expect("write framed payload");
+        let mut input = BufReader::with_capacity(8, Cursor::new(output));
+        let payload = read_content_length_message(&mut input).expect("read framed payload");
+
+        assert_eq!(payload, Some("{\"jsonrpc\":\"2.0\"}".to_string()));
+    }
+
+    #[test]
+    fn content_length_reader_accepts_case_insensitive_headers_and_extensions() {
+        let input = b"content-type: application/vscode-jsonrpc; charset=utf-8\r\ncontent-length: 17\r\n\r\n{\"jsonrpc\":\"2.0\"}";
+        let mut cursor = Cursor::new(input.to_vec());
+
+        let payload = read_content_length_message(&mut cursor).expect("read framed payload");
+
+        assert_eq!(payload, Some("{\"jsonrpc\":\"2.0\"}".to_string()));
+    }
+
+    #[test]
+    fn content_length_writer_flushes_response() {
+        let mut writer = FlushRecordingWriter::default();
+
+        write_content_length_message(&mut writer, "{\"jsonrpc\":\"2.0\"}")
+            .expect("write framed payload");
+
+        assert!(writer.flushed);
+        assert_eq!(
+            String::from_utf8(writer.written).expect("utf8 payload"),
+            "Content-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: 17\r\n\r\n{\"jsonrpc\":\"2.0\"}"
+        );
+    }
+
+    #[test]
+    fn session_handles_initialize_and_tools_list_requests() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+            r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses.len(), 2);
+        assert_eq!(responses[0]["id"], 1);
+        assert_eq!(
+            responses[0]["result"]["serverInfo"]["name"],
+            "vibe-sentinel"
+        );
+        assert_eq!(
+            responses[0]["result"]["capabilities"]["tools"]["listChanged"],
+            false
+        );
+        assert_eq!(
+            responses[0]["result"]["capabilities"]["resources"]["listChanged"],
+            false
+        );
+        assert_eq!(responses[1]["id"], 2);
+        assert_eq!(responses[1]["result"]["tools"][0]["name"], STATUS_TOOL_NAME);
+        assert_eq!(
+            responses[1]["result"]["tools"][1]["name"],
+            ACTIVE_PLAN_VALIDATION_TOOL_NAME
+        );
+        assert_eq!(
+            responses[1]["result"]["tools"][2]["name"],
+            TDD_GATE_TOOL_NAME
+        );
+        assert_eq!(
+            responses[1]["result"]["tools"][0]["annotations"]["readOnlyHint"],
+            true
+        );
+    }
+
+    #[test]
+    fn tools_list_uses_descriptor_input_schema_for_current_tools() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        let tools = responses[0]["result"]["tools"].as_array().expect("tools");
+        for tool in tools.iter().take(2) {
+            assert_eq!(tool["inputSchema"]["type"], "object");
+            assert_eq!(
+                tool["inputSchema"]["properties"]
+                    .as_object()
+                    .expect("properties")
+                    .len(),
+                0
+            );
+            assert_eq!(tool["inputSchema"]["additionalProperties"], false);
+        }
+        let tdd_gate_schema = &tools[2]["inputSchema"];
+        assert_eq!(tdd_gate_schema["type"], "object");
+        assert_eq!(tdd_gate_schema["required"][0], "next_action");
+        assert_eq!(
+            tdd_gate_schema["properties"]["next_action"]["enum"][0],
+            "start_architecture"
+        );
+        assert_eq!(tdd_gate_schema["additionalProperties"], false);
+    }
+
+    #[test]
+    fn initialize_echoes_client_protocol_version() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":3,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"vscode","version":"test"}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], 3);
+        assert_eq!(responses[0]["result"]["protocolVersion"], "2025-06-18");
+        assert_eq!(
+            responses[0]["result"]["serverInfo"]["name"],
+            "vibe-sentinel"
+        );
+    }
+
+    #[test]
+    fn mcp_initialize_advertises_resources_capability() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"init-resources","method":"initialize","params":{}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], "init-resources");
+        assert_eq!(
+            responses[0]["result"]["capabilities"]["resources"]["listChanged"],
+            false
+        );
+    }
+
+    #[test]
+    fn mcp_resources_list_returns_active_plan_resources() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"resources-list","method":"resources/list"}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        let resources = responses[0]["result"]["resources"]
+            .as_array()
+            .expect("resources");
+        assert_eq!(responses[0]["id"], "resources-list");
+        assert_eq!(resources.len(), 1);
+        assert_eq!(
+            resources[0]["uri"],
+            "vibe-sentinel://active-plans/test-plan.md"
+        );
+        assert_eq!(resources[0]["name"], "test-plan.md");
+        assert_eq!(resources[0]["mimeType"], "text/markdown");
+    }
+
+    #[test]
+    fn mcp_resources_list_returns_empty_when_idle() {
+        let workspace = TestWorkspace::new_without_active_plan();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"resources-idle","method":"resources/list"}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], "resources-idle");
+        assert!(responses[0]["result"]["resources"]
+            .as_array()
+            .expect("resources")
+            .is_empty());
+    }
+
+    #[test]
+    fn mcp_resources_read_returns_markdown_contents() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"resources-read","method":"resources/read","params":{"uri":"vibe-sentinel://active-plans/test-plan.md"}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        let content = &responses[0]["result"]["contents"][0];
+        assert_eq!(responses[0]["id"], "resources-read");
+        assert_eq!(content["uri"], "vibe-sentinel://active-plans/test-plan.md");
+        assert_eq!(content["mimeType"], "text/markdown");
+        assert!(content["text"]
+            .as_str()
+            .expect("text")
+            .contains("# Execution Plan: Example"));
+    }
+
+    #[test]
+    fn mcp_resources_read_rejects_invalid_params() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"bad-resource","method":"resources/read","params":{"uri":true}}"#,
+            r#"{"jsonrpc":"2.0","id":"good-resource","method":"resources/read","params":{"uri":"vibe-sentinel://active-plans/test-plan.md"}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses.len(), 2);
+        assert_eq!(responses[0]["id"], "bad-resource");
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert_eq!(responses[1]["id"], "good-resource");
+        assert!(responses[1]["result"]["contents"][0]["text"]
+            .as_str()
+            .expect("text")
+            .contains("# Execution Plan: Example"));
+    }
+
+    #[test]
+    fn mcp_resources_read_rejects_unknown_uri_without_aborting() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"missing-resource","method":"resources/read","params":{"uri":"vibe-sentinel://active-plans/missing.md"}}"#,
+            r#"{"jsonrpc":"2.0","id":"status-after-resource-error","method":"tools/call","params":{"name":"vibe_sentinel_status","arguments":{}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses.len(), 2);
+        assert_eq!(responses[0]["id"], "missing-resource");
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert_eq!(responses[1]["id"], "status-after-resource-error");
+        assert_eq!(responses[1]["result"]["isError"], false);
+    }
+
+    #[test]
+    fn mcp_resources_list_maps_workspace_errors_without_aborting() {
+        let workspace = TestWorkspace::new_with_unreadable_active_plan();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"resources-error","method":"resources/list"}"#,
+            r#"{"jsonrpc":"2.0","id":"status-after-resources-error","method":"tools/call","params":{"name":"vibe_sentinel_status","arguments":{}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses.len(), 2);
+        assert_eq!(responses[0]["id"], "resources-error");
+        assert_eq!(responses[0]["error"]["code"], -32000);
+        assert_eq!(responses[1]["id"], "status-after-resources-error");
+        assert_eq!(responses[1]["result"]["isError"], true);
+    }
+
+    #[test]
+    fn session_handles_vscode_newline_initialize_request() {
+        let workspace = TestWorkspace::new();
+        let input = newline_messages(&[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{"roots":{"listChanged":true},"sampling":{},"elicitation":{"form":{},"url":{}},"tasks":{"list":{},"cancel":{},"requests":{"sampling":{"createMessage":{}},"elicitation":{"create":{}}}},"extensions":{"io.modelcontextprotocol/ui":{"mimeTypes":["text/html;profile=mcp-app"]}}},"clientInfo":{"name":"Visual Studio Code","version":"1.119.0"}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let output_text = String::from_utf8(output.clone()).expect("utf8 output");
+        assert!(!output_text.contains("Content-Length"));
+
+        let responses = decode_newline_responses(&output);
+        assert_eq!(responses.len(), 1);
+        assert_eq!(responses[0]["id"], 1);
+        assert_eq!(responses[0]["result"]["protocolVersion"], "2025-11-25");
+        assert_eq!(
+            responses[0]["result"]["serverInfo"]["name"],
+            "vibe-sentinel"
+        );
+    }
+
+    #[test]
+    fn session_handles_status_tool_call_request() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"status-1","method":"tools/call","params":{"name":"vibe_sentinel_status","arguments":{}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        let structured = &responses[0]["result"]["structuredContent"];
+        assert_eq!(responses[0]["id"], "status-1");
+        assert_eq!(responses[0]["result"]["isError"], false);
+        assert_eq!(structured["project_name"], "vibe-sentinel");
+        assert_eq!(structured["ready"], true);
+        assert_eq!(structured["checks"].as_array().expect("checks").len(), 3);
+    }
+
+    #[test]
+    fn session_handles_status_tool_call_request_without_arguments_field() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"status-no-args","method":"tools/call","params":{"name":"vibe_sentinel_status"}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], "status-no-args");
+        assert_eq!(responses[0]["result"]["isError"], false);
+        assert_eq!(
+            responses[0]["result"]["structuredContent"]["project_name"],
+            "vibe-sentinel"
+        );
+    }
+
+    #[test]
+    fn session_handles_active_plan_validation_tool_call_request() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"plans-1","method":"tools/call","params":{"name":"vibe_sentinel_validate_active_plans","arguments":{}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        let structured = &responses[0]["result"]["structuredContent"];
+        assert_eq!(responses[0]["id"], "plans-1");
+        assert_eq!(responses[0]["result"]["isError"], false);
+        assert_eq!(structured["project_name"], "vibe-sentinel");
+        assert_eq!(structured["plans"].as_array().expect("plans").len(), 1);
+    }
+
+    #[test]
+    fn session_handles_active_plan_validation_tool_call_request_without_arguments_field() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"plans-no-args","method":"tools/call","params":{"name":"vibe_sentinel_validate_active_plans"}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], "plans-no-args");
+        assert_eq!(responses[0]["result"]["isError"], false);
+        assert_eq!(
+            responses[0]["result"]["structuredContent"]["project_name"],
+            "vibe-sentinel"
+        );
+    }
+
+    #[test]
+    fn session_handles_tdd_gate_tool_call_request() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":"gate-1","method":"tools/call","params":{"name":"vibe_sentinel_tdd_gate","arguments":{"next_action":"complete_plan"}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        let structured = &responses[0]["result"]["structuredContent"];
+        assert_eq!(responses[0]["id"], "gate-1");
+        assert_eq!(responses[0]["result"]["isError"], false);
+        assert_eq!(structured["project_name"], "vibe-sentinel");
+        assert_eq!(structured["allowed"], true);
+        assert_eq!(structured["current_phase"], "complete_ready");
+        assert_eq!(structured["next_allowed_actions"][0], "complete_plan");
+    }
+
+    #[test]
+    fn session_rejects_status_tool_call_with_unexpected_arguments() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"vibe_sentinel_status","arguments":{"unexpected":true}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], 10);
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert!(responses[0]["error"]["message"]
+            .as_str()
+            .expect("message")
+            .contains("does not accept arguments"));
+    }
+
+    #[test]
+    fn session_rejects_active_plan_validation_tool_call_with_unexpected_arguments() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"vibe_sentinel_validate_active_plans","arguments":{"path":"docs/exec-plans/active/example.md"}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], 11);
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert!(responses[0]["error"]["message"]
+            .as_str()
+            .expect("message")
+            .contains("does not accept arguments"));
+    }
+
+    #[test]
+    fn session_rejects_tdd_gate_tool_call_with_invalid_next_action_without_aborting() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":18,"method":"tools/call","params":{"name":"vibe_sentinel_tdd_gate","arguments":{"next_action":"skip_to_implementation"}}}"#,
+            r#"{"jsonrpc":"2.0","id":19,"method":"tools/call","params":{"name":"vibe_sentinel_tdd_gate","arguments":{"next_action":"complete_plan"}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses.len(), 2);
+        assert_eq!(responses[0]["id"], 18);
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert!(responses[0]["error"]["message"]
+            .as_str()
+            .expect("message")
+            .contains("invalid arguments"));
+        assert_eq!(responses[1]["id"], 19);
+        assert_eq!(responses[1]["result"]["isError"], false);
+    }
+
+    #[test]
+    fn session_rejects_tdd_gate_tool_call_without_arguments() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"vibe_sentinel_tdd_gate"}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], 20);
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert!(responses[0]["error"]["message"]
+            .as_str()
+            .expect("message")
+            .contains("requires object arguments"));
+    }
+
+    #[test]
+    fn session_rejects_status_tool_call_with_non_object_arguments() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"vibe_sentinel_status","arguments":true}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], 12);
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert!(responses[0]["error"]["message"]
+            .as_str()
+            .expect("message")
+            .contains("requires object arguments"));
+    }
+
+    #[test]
+    fn session_rejects_active_plan_validation_tool_call_with_non_object_arguments() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"vibe_sentinel_validate_active_plans","arguments":["bad"]}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], 13);
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert!(responses[0]["error"]["message"]
+            .as_str()
+            .expect("message")
+            .contains("requires object arguments"));
+    }
+
+    #[test]
+    fn session_rejects_tools_call_with_non_object_params_without_aborting() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":14,"method":"tools/call","params":true}"#,
+            r#"{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"vibe_sentinel_status","arguments":{}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses.len(), 2);
+        assert_eq!(responses[0]["id"], 14);
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert_eq!(responses[1]["id"], 15);
+        assert_eq!(responses[1]["result"]["isError"], false);
+    }
+
+    #[test]
+    fn session_rejects_tools_call_without_name_without_aborting() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"arguments":{}}}"#,
+            r#"{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"vibe_sentinel_status","arguments":{}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses.len(), 2);
+        assert_eq!(responses[0]["id"], 16);
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert_eq!(responses[1]["id"], 17);
+        assert_eq!(responses[1]["result"]["isError"], false);
+    }
+
+    #[test]
+    fn session_maps_active_plan_validation_workspace_errors_to_tool_error_payload() {
+        let workspace = TestWorkspace::new_with_unreadable_active_plan();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"vibe_sentinel_validate_active_plans","arguments":{}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], 9);
+        assert_eq!(responses[0]["result"]["isError"], true);
+        assert_eq!(
+            responses[0]["result"]["structuredContent"]["code"],
+            "workspace_unreadable"
+        );
+    }
+
+    #[test]
+    fn session_maps_tdd_gate_workspace_errors_to_tool_error_payload() {
+        let workspace = TestWorkspace::new_with_unreadable_active_plan();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"vibe_sentinel_tdd_gate","arguments":{"next_action":"start_implementation"}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], 21);
+        assert_eq!(responses[0]["result"]["isError"], true);
+        assert_eq!(
+            responses[0]["result"]["structuredContent"]["code"],
+            "workspace_unreadable"
+        );
+    }
+
+    #[test]
+    fn session_maps_unknown_tool_to_invalid_request_error() {
+        let workspace = TestWorkspace::new();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"unknown_tool","arguments":{}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], 7);
+        assert_eq!(responses[0]["error"]["code"], -32602);
+        assert!(responses[0]["error"]["message"]
+            .as_str()
+            .expect("message")
+            .contains("unknown MCP tool"));
+    }
+
+    #[test]
+    fn session_maps_workspace_probe_errors_to_tool_error_payload() {
+        let workspace = TestWorkspace::new_with_unreadable_active_plan();
+        let input = framed_messages(&[
+            r#"{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"vibe_sentinel_status","arguments":{}}}"#,
+        ]);
+        let mut output = Vec::new();
+
+        run_stdio_session(
+            McpServerConfig {
+                root: workspace.root().to_path_buf(),
+            },
+            Cursor::new(input),
+            &mut output,
+        )
+        .expect("stdio session");
+
+        let responses = decode_framed_responses(&output);
+        assert_eq!(responses[0]["id"], 8);
+        assert_eq!(responses[0]["result"]["isError"], true);
+        assert_eq!(
+            responses[0]["result"]["structuredContent"]["code"],
+            "workspace_unreadable"
+        );
+    }
+
+    fn framed_messages(messages: &[&str]) -> Vec<u8> {
+        let mut output = Vec::new();
+        for message in messages {
+            write!(
+                output,
+                "Content-Length: {}\r\n\r\n{}",
+                message.len(),
+                message
+            )
+            .expect("framed message");
+        }
+        output
+    }
+
+    fn newline_messages(messages: &[&str]) -> Vec<u8> {
+        let mut output = Vec::new();
+        for message in messages {
+            writeln!(output, "{message}").expect("newline message");
+        }
+        output
+    }
+
+    fn decode_framed_responses(output: &[u8]) -> Vec<serde_json::Value> {
+        let mut cursor = Cursor::new(output.to_vec());
+        let mut responses = Vec::new();
+        while let Some(payload) = read_content_length_message(&mut cursor).expect("framed response")
+        {
+            responses.push(serde_json::from_str(&payload).expect("json response"));
+        }
+        responses
+    }
+
+    fn decode_newline_responses(output: &[u8]) -> Vec<serde_json::Value> {
+        String::from_utf8(output.to_vec())
+            .expect("utf8 output")
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("json response"))
+            .collect()
+    }
+
+    #[derive(Default)]
+    struct FlushRecordingWriter {
+        written: Vec<u8>,
+        flushed: bool,
+    }
+
+    impl Write for FlushRecordingWriter {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            self.written.extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.flushed = true;
+            Ok(())
+        }
+    }
+
+    struct TestWorkspace {
+        root: PathBuf,
+    }
+
+    impl TestWorkspace {
+        fn new() -> Self {
+            let root = unique_test_root();
+            write_ready_workspace(&root);
+            Self { root }
+        }
+
+        fn new_without_active_plan() -> Self {
+            let root = unique_test_root();
+            write_ready_workspace(&root);
+            std::fs::remove_file(root.join("docs/exec-plans/active/test-plan.md"))
+                .expect("remove active plan");
+            Self { root }
+        }
+
+        fn new_with_unreadable_active_plan() -> Self {
+            let root = unique_test_root();
+            write_ready_workspace(&root);
+            std::fs::remove_dir_all(root.join("docs/exec-plans/active"))
+                .expect("remove active dir");
+            std::fs::write(root.join("docs/exec-plans/active"), "not a directory")
+                .expect("active file");
+            Self { root }
+        }
+
+        fn root(&self) -> &Path {
+            &self.root
+        }
+    }
+
+    impl Drop for TestWorkspace {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn write_ready_workspace(root: &Path) {
+        std::fs::create_dir_all(root.join("docs/harness")).expect("harness docs dir");
+        std::fs::create_dir_all(root.join("docs/exec-plans/active")).expect("active plan dir");
+        std::fs::write(root.join("AGENTS.md"), "# AGENTS\n").expect("agents doc");
+        std::fs::write(root.join("docs/harness/scope.md"), "# Scope\n").expect("scope doc");
+        std::fs::write(
+            root.join("docs/harness/operating-model.md"),
+            "# Operating Model\n",
+        )
+        .expect("operating model doc");
+        std::fs::write(root.join("docs/exec-plans/active/README.md"), "# Active\n")
+            .expect("active readme");
+        std::fs::write(
+            root.join("docs/exec-plans/active/test-plan.md"),
+            ready_plan_fixture(),
+        )
+        .expect("active plan");
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"fixture\"\n")
+            .expect("cargo manifest");
+    }
+
+    fn ready_plan_fixture() -> &'static str {
+        r#"# Execution Plan: Example
+
+## TDD artifacts
+
+### Reviewed Plan
+
+- Plan review status: reviewed
+
+### Reviewed Architecture
+
+- Architecture review status: reviewed
+
+### Skeleton Checklist
+
+- [x] `domain` skeleton added.
+
+### Mock Test Checklist
+
+- [x] core test covers skeleton behavior.
+
+### Implementation Checklist
+
+- [x] Fill `domain` behavior.
+- Validation after this unit: `cargo test session_handles_active_plan_validation_tool_call_request` passed.
+
+### Validation Log
+
+- 2026-05-07: `python3 scripts/validate_tdd_workflow.py docs/exec-plans/active/example.md` -> passed.
+"#
+    }
+
+    fn unique_test_root() -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let base = std::env::var_os("TMPDIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
+        base.join(format!("vibe-sentinel-mcp-test-{nanos}"))
+    }
+}

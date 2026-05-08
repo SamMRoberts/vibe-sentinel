@@ -3,7 +3,7 @@
 ## Purpose
 
 This file is the routing map for coding agents working on vibe-sentinel.
-Project purpose: Rust CLI, ratatui TUI, and MCP feature development under a strict modified TDD workflow.
+Project purpose: Rust CLI, ratatui TUI, and MCP feature development under a strict TDD workflow.
 Keep this file short; put durable project knowledge in `docs/`.
 
 ## Harness rule
@@ -18,7 +18,8 @@ or is not included in the harness scope.
 | --- | --- |
 | Harness scope, exclusions, approvals | `docs/harness/scope.md` |
 | Initialization answers and setup history | `docs/harness/initialization.md` |
-| Modified TDD operating model | `docs/harness/operating-model.md` |
+| TDD operating model | `docs/harness/operating-model.md` |
+| Harness open questions | `docs/harness/open-questions.md` |
 | Documentation map | `docs/README.md` |
 | Product intent and users | `docs/app-specs/app-spec.md` |
 | Product specs index | `docs/app-specs/index.md` |
@@ -36,6 +37,7 @@ or is not included in the harness scope.
 | Logs, metrics, traces, UI validation | `docs/observability.md` |
 | Review expectations | `docs/review.md` |
 | External or copied references | `docs/references/index.md` |
+| Symdex MCP evidence workflow (any repository) | `docs/references/symdex-mcp-tools-usage.md` |
 
 ## Scope gate
 
@@ -64,13 +66,13 @@ Resolution options:
 
 ## Planning requirements
 
-Create an active plan for multi-file, architectural, security, reliability,
-or user-visible behavior changes.
+Create an active plan for unclear, multi-file, architectural, security,
+reliability, or user-visible behavior changes.
 
 Active plans live in `docs/exec-plans/active/`.
 Completed plans move to `docs/exec-plans/completed/`.
 Use `docs/exec-plans/plan-template.md`.
-Feature plans must include the modified TDD artifacts required by
+Feature plans must include the TDD artifacts required by
 `docs/harness/operating-model.md`.
 
 ## Documentation requirements
@@ -109,6 +111,13 @@ Follow `docs/security.md` and `docs/reliability.md`.
 Do not weaken auth, validation, privacy, rate limits, retries, timeouts,
 observability, or error handling without explicit harness approval.
 
+## Symdex MCP Tool Usage
+
+Use symdex MCP tools as the first evidence pass when they can answer a question
+from the local index. They are designed to provide compact, metadata-first
+context for agents without reading whole files or exposing source text.
+
+Symdex usage guidlines are in `docs/references/symdex-mcp-tools-usage.md`.
 ## References
 
 Use `docs/references/` for external docs copied into the repo.

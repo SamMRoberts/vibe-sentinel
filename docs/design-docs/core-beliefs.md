@@ -11,7 +11,7 @@ threads, memory, and external docs do not count unless summarized or copied into
 Project knowledge should live in versioned markdown, schemas, code, tests,
 scripts, plans, and references.
 
-## Modified TDD over implementation rush
+## TDD over implementation rush
 
 Feature work starts with information, research, reviewed planning, and reviewed
 architecture pseudocode. Code starts as mockable skeletons. Implementation lands

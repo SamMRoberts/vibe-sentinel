@@ -32,7 +32,7 @@ Describe the task in one paragraph.
 
 - <criterion>
 
-## Modified TDD artifacts
+## TDD artifacts
 
 ### Feature Info
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate modified TDD artifact sections in execution plans."""
+"""Validate TDD artifact sections in execution plans."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ DEFAULT_PATHS = [ROOT / "docs/exec-plans/plan-template.md"]
 ACTIVE_DIR = ROOT / "docs/exec-plans/active"
 
 REQUIRED_HEADINGS = [
-    "Modified TDD artifacts",
+    "TDD artifacts",
     "Feature Info",
     "Research Notes",
     "Reviewed Plan",
@@ -58,7 +58,7 @@ def validate(path: Path) -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Check execution plans for required modified TDD sections."
+        description="Check execution plans for required TDD sections."
     )
     parser.add_argument(
         "paths",
@@ -74,12 +74,12 @@ def main() -> int:
         errors.extend(validate(path))
 
     if errors:
-        print("Modified TDD workflow validation failed:")
+        print("TDD workflow validation failed:")
         for error in errors:
             print(f"- {error}")
         return 1
 
-    print(f"Modified TDD workflow validation passed for {len(paths)} file(s).")
+    print(f"TDD workflow validation passed for {len(paths)} file(s).")
     return 0
 
 

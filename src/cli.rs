@@ -1,0 +1,312 @@
+use crate::core::StatusService;
+use crate::domain::{ReadinessState, StatusReport, VibeError};
+use crate::ports::WorkspaceProbe;
+use serde::Serialize;
+
+const STATUS_OUTPUT_FLAG_USAGE: &str = "`--json` or `--tui`";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CliArgs {
+    pub command: CliCommand,
+    pub output_format: OutputFormat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CliCommand {
+    Status,
+    McpServe,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputFormat {
+    Text,
+    Json,
+    Tui,
+}
+
+pub fn parse_args<I, S>(args: I) -> Result<CliArgs, VibeError>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    let mut arguments: Vec<String> = args.into_iter().map(Into::into).collect();
+    if matches!(arguments.first(), Some(binary_name) if binary_name.ends_with("vibe-sentinel")) {
+        arguments.remove(0);
+    }
+
+    match arguments.as_slice() {
+        [command] if command == "status" => Ok(CliArgs {
+            command: CliCommand::Status,
+            output_format: OutputFormat::Text,
+        }),
+        [command, subcommand] if command == "mcp" && subcommand == "serve" => Ok(CliArgs {
+            command: CliCommand::McpServe,
+            output_format: OutputFormat::Text,
+        }),
+        [command, flag] if command == "status" && flag == "--json" => Ok(CliArgs {
+            command: CliCommand::Status,
+            output_format: OutputFormat::Json,
+        }),
+        [command, flag] if command == "status" && flag == "--tui" => Ok(CliArgs {
+            command: CliCommand::Status,
+            output_format: OutputFormat::Tui,
+        }),
+        [command, first_flag, second_flag]
+            if command == "status"
+                && matches!(first_flag.as_str(), "--json" | "--tui")
+                && matches!(second_flag.as_str(), "--json" | "--tui") =>
+        {
+            Err(VibeError::InvalidArguments(format!(
+                "conflicting output flags for `status`: choose one of {STATUS_OUTPUT_FLAG_USAGE}"
+            )))
+        }
+        [command, flag] if command == "status" => Err(VibeError::InvalidArguments(format!(
+            "unknown flag `{flag}`: expected {STATUS_OUTPUT_FLAG_USAGE}"
+        ))),
+        [command, ..] if command == "status" => Err(VibeError::InvalidArguments(format!(
+            "too many arguments for `status`: expected optional {STATUS_OUTPUT_FLAG_USAGE}"
+        ))),
+        [command] if command == "mcp" => Err(VibeError::InvalidArguments(
+            "missing subcommand for `mcp`: expected `serve`".to_string(),
+        )),
+        [command, subcommand] if command == "mcp" => Err(VibeError::InvalidArguments(format!(
+            "unknown subcommand `mcp {subcommand}`: expected `mcp serve`"
+        ))),
+        [command, ..] if command == "mcp" => Err(VibeError::InvalidArguments(
+            "too many arguments for `mcp`: expected `mcp serve`".to_string(),
+        )),
+        [] => Err(VibeError::InvalidArguments(
+            "missing command: expected `status` or `mcp serve`".to_string(),
+        )),
+        [command, ..] => Err(VibeError::InvalidArguments(format!(
+            "unknown command `{command}`: expected `status` or `mcp serve`"
+        ))),
+    }
+}
+
+pub fn render_status(args: &CliArgs, report: &StatusReport) -> Result<String, VibeError> {
+    match args.output_format {
+        OutputFormat::Text => Ok(format_status(report)),
+        OutputFormat::Json => format_status_json(report),
+        OutputFormat::Tui => Err(VibeError::InvalidArguments(
+            "TUI output must be handled by the TUI runtime".to_string(),
+        )),
+    }
+}
+
+pub fn execute_with_probe<P: WorkspaceProbe>(
+    args: CliArgs,
+    probe: P,
+) -> Result<StatusReport, VibeError> {
+    match args.command {
+        CliCommand::Status => StatusService::new(probe).evaluate(),
+        CliCommand::McpServe => Err(VibeError::InvalidArguments(
+            "MCP serve must be handled by the MCP runtime".to_string(),
+        )),
+    }
+}
+
+pub fn format_status(report: &StatusReport) -> String {
+    let mut output = format!("{} status\n", report.project_name);
+    for check in &report.checks {
+        let state = match check.state {
+            ReadinessState::Ready => "ready",
+            ReadinessState::Missing => "missing",
+        };
+        output.push_str(&format!("- {}: {} - {}\n", check.name, state, check.detail));
+    }
+    output
+}
+
+pub fn format_status_json(report: &StatusReport) -> Result<String, VibeError> {
+    #[derive(Serialize)]
+    struct StatusJson<'a> {
+        project_name: &'a str,
+        ready: bool,
+        checks: &'a [crate::domain::StatusCheck],
+    }
+
+    let output = StatusJson {
+        project_name: &report.project_name,
+        ready: report.is_ready(),
+        checks: &report.checks,
+    };
+
+    serde_json::to_string(&output)
+        .map(|mut json| {
+            json.push('\n');
+            json
+        })
+        .map_err(|error| {
+            VibeError::StatusEvaluationFailed(format!("could not format status JSON: {error}"))
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        execute_with_probe, format_status, format_status_json, parse_args, render_status,
+        CliCommand, OutputFormat,
+    };
+    use crate::adapters::test_support::FakeWorkspaceProbe;
+    use crate::domain::VibeError;
+
+    #[test]
+    fn parse_args_skeleton_returns_status_command() {
+        let args = parse_args(["vibe-sentinel", "status"]).expect("parsed args");
+
+        assert_eq!(args.command, CliCommand::Status);
+        assert_eq!(args.output_format, OutputFormat::Text);
+    }
+
+    #[test]
+    fn parse_args_accepts_status_json() {
+        let args = parse_args(["vibe-sentinel", "status", "--json"]).expect("parsed args");
+
+        assert_eq!(args.command, CliCommand::Status);
+        assert_eq!(args.output_format, OutputFormat::Json);
+    }
+
+    #[test]
+    fn parse_args_accepts_status_tui() {
+        let args = parse_args(["vibe-sentinel", "status", "--tui"]).expect("parsed args");
+
+        assert_eq!(args.command, CliCommand::Status);
+        assert_eq!(args.output_format, OutputFormat::Tui);
+    }
+
+    #[test]
+    fn parse_args_accepts_mcp_serve() {
+        let args = parse_args(["vibe-sentinel", "mcp", "serve"]).expect("parsed args");
+
+        assert_eq!(args.command, CliCommand::McpServe);
+        assert_eq!(args.output_format, OutputFormat::Text);
+    }
+
+    #[test]
+    fn parse_args_rejects_conflicting_status_output_flags() {
+        let error =
+            parse_args(["vibe-sentinel", "status", "--json", "--tui"]).expect_err("parse error");
+
+        assert_eq!(
+            error,
+            VibeError::InvalidArguments(
+                "conflicting output flags for `status`: choose one of `--json` or `--tui`"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_status_with_too_many_arguments_listing_json_and_tui() {
+        let error =
+            parse_args(["vibe-sentinel", "status", "--tui", "extra"]).expect_err("parse error");
+
+        assert_eq!(
+            error,
+            VibeError::InvalidArguments(
+                "too many arguments for `status`: expected optional `--json` or `--tui`"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn render_status_rejects_tui_output_format() {
+        let args = parse_args(["vibe-sentinel", "status", "--tui"]).expect("parsed args");
+        let report =
+            execute_with_probe(args.clone(), FakeWorkspaceProbe::new()).expect("status report");
+
+        assert_eq!(
+            render_status(&args, &report),
+            Err(VibeError::InvalidArguments(
+                "TUI output must be handled by the TUI runtime".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_unknown_status_flag() {
+        let error = parse_args(["vibe-sentinel", "status", "--pretty"]).expect_err("parse error");
+
+        assert_eq!(
+            error,
+            VibeError::InvalidArguments(
+                "unknown flag `--pretty`: expected `--json` or `--tui`".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_unknown_command() {
+        let error = parse_args(["vibe-sentinel", "watch"]).expect_err("parse error");
+
+        assert_eq!(
+            error,
+            VibeError::InvalidArguments(
+                "unknown command `watch`: expected `status` or `mcp serve`".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn execute_with_probe_rejects_mcp_serve() {
+        let args = parse_args(["vibe-sentinel", "mcp", "serve"]).expect("parsed args");
+
+        assert_eq!(
+            execute_with_probe(args, FakeWorkspaceProbe::new()),
+            Err(VibeError::InvalidArguments(
+                "MCP serve must be handled by the MCP runtime".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn execute_with_probe_returns_status_report() {
+        let args = parse_args(["vibe-sentinel", "status"]).expect("parsed args");
+
+        let report = execute_with_probe(args, FakeWorkspaceProbe::new()).expect("status report");
+
+        assert_eq!(report.project_name, "vibe-sentinel");
+    }
+
+    #[test]
+    fn format_status_is_deterministic() {
+        let args = parse_args(["vibe-sentinel", "status"]).expect("parsed args");
+        let report = execute_with_probe(
+            args,
+            FakeWorkspaceProbe::new()
+                .with_path("AGENTS.md")
+                .with_path("docs/harness/scope.md")
+                .with_path("docs/harness/operating-model.md")
+                .with_path("Cargo.toml")
+                .with_active_plan(true),
+        )
+        .expect("status report");
+
+        assert_eq!(
+            format_status(&report),
+            "vibe-sentinel status\n- harness docs: ready - required harness docs present\n- active plan: ready - active execution plan present\n- rust workspace: ready - Cargo workspace present\n"
+        );
+    }
+
+    #[test]
+    fn format_status_json_is_deterministic() {
+        let args = parse_args(["vibe-sentinel", "status", "--json"]).expect("parsed args");
+        let report = execute_with_probe(
+            args,
+            FakeWorkspaceProbe::new()
+                .with_path("AGENTS.md")
+                .with_path("docs/harness/scope.md")
+                .with_path("docs/harness/operating-model.md")
+                .with_path("Cargo.toml")
+                .with_active_plan(true),
+        )
+        .expect("status report");
+
+        assert_eq!(
+            format_status_json(&report).expect("json output"),
+            "{\"project_name\":\"vibe-sentinel\",\"ready\":true,\"checks\":[{\"name\":\"harness docs\",\"state\":\"ready\",\"detail\":\"required harness docs present\"},{\"name\":\"active plan\",\"state\":\"ready\",\"detail\":\"active execution plan present\"},{\"name\":\"rust workspace\",\"state\":\"ready\",\"detail\":\"Cargo workspace present\"}]}\n"
+        );
+    }
+}

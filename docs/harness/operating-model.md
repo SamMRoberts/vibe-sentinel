@@ -4,7 +4,7 @@
 
 Humans steer goals, acceptance criteria, scope changes, and final judgment.
 Agents execute inside the harness, keep work inspectable, and preserve the
-modified TDD workflow.
+TDD workflow.
 
 ## Scope gate
 
@@ -13,7 +13,7 @@ task-specific docs routed by the table of contents. Classify the request with
 the scope gate. Multi-file, architectural, user-visible, security, reliability,
 or unclear work requires an active execution plan.
 
-## Modified TDD workflow
+## TDD workflow
 
 All feature development must follow this sequence in order:
 
